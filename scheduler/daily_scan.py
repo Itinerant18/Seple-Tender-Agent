@@ -12,7 +12,7 @@ from database import repository
 from database.models import Tender, FitLabel, Notification, NotificationType
 from connectors import TenderTigerConnector, Tender247Connector, GeMConnector
 from processor import FieldExtractor, TenderClassifier, Deduplicator, EligibilityChecker
-from processor.keywords import SEARCH_KEYWORDS
+from config.keywords import SEARCH_KEYWORDS
 from notifier.slack_alert import SlackAlerter
 from notifier.email_digest import EmailDigestSender
 from notifier.alert_rules import AlertRulesEngine

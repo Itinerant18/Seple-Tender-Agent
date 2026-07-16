@@ -151,7 +151,7 @@ class TenderClassifier:
 
     def _fallback_classification(self, raw: RawTender) -> TenderAnalysis:
         """Basic keyword-based fallback if LLM is unavailable."""
-        from processor.keywords import SEARCH_KEYWORDS
+        from config.keywords import SEARCH_KEYWORDS
         title_lower = raw.title.lower()
 
         matched = [k for k in SEARCH_KEYWORDS if k in title_lower]

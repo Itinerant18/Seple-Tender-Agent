@@ -42,19 +42,21 @@ class TenderTigerConnector(BaseConnector):
         try:
             await self._init_browser()
             logger.info("Navigating to TenderTiger login...")
-            # Note: Actual login URL and selectors need to be verified against the live site.
-            await self.page.goto(f"{self.base_url}/Login.aspx")
-            
-            # Fill login form (selectors are placeholders for the real DOM)
-            await self.page.fill("input[name='txtEmail']", self.email)
-            await self.page.fill("input[name='txtPassword']", self.password)
-            await self.page.click("input[type='submit']")
-            
-            # Wait for navigation or specific element that indicates successful login
-            await self.page.wait_for_load_state("networkidle")
-            
-            # Check for error messages or verify we are logged in
-            if "Login.aspx" not in self.page.url:
+            # Selectors verified against live site 16-07-2026:
+            # login page /User/Account?login, input[name='Email'],
+            # input[name='Password'], button#btnlogin
+            await self.page.goto(f"{self.base_url}/User/Account?login")
+            await self.page.fill("input[name='Email']", self.email)
+            await self.page.fill("input[name='Password']", self.password)
+            await self.page.click("#btnlogin")
+
+            try:
+                await self.page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:
+                pass  # trackers keep the connection busy; URL check below decides
+
+            # Still on the account/login page => credentials rejected
+            if "/User/Account" not in self.page.url:
                 self.is_logged_in = True
                 logger.info("Successfully logged into TenderTiger")
                 return True

@@ -1,22 +1,24 @@
-FROM python:3.12-slim
+# SEPLE Tender API — FastAPI over the tender database.
+# Same playwright base as the scanner: /api/scan/trigger runs the full
+# scrape pipeline in-process, so chromium must exist in this image too.
+FROM mcr.microsoft.com/playwright/python:v1.61.0-noble
 
 WORKDIR /app
 
-# Install system dependencies needed for asyncpg/PostgreSQL
 RUN apt-get update && apt-get install -y \
     gcc \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install
-COPY requirements-api.txt .
-RUN pip install --no-cache-dir -r requirements-api.txt
+COPY requirements.custom.txt .
+RUN pip install --no-cache-dir -r requirements.custom.txt
 
-# Copy application code
+RUN playwright install chromium
+
 COPY . .
 
-# Expose API port
+ENV DOCKER_ENV=true
+
 EXPOSE 8000
 
-# Start FastAPI
 CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
