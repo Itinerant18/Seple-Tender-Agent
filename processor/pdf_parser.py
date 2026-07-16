@@ -1,96 +1,96 @@
 """
-SEPLE PDF Parser
-Extracts text and structured data from tender PDF documents.
+SEPLE Tender Processor — PDF Parser
+Extracts text and structured data (like BOQ) from tender PDFs.
 """
-import io
 import logging
-from pathlib import Path
+import io
+import re
+from typing import Optional, List, Dict
+import pdfplumber
 
 logger = logging.getLogger(__name__)
 
-
 class PDFParser:
-    """Extracts text content from tender PDF documents."""
-
+    """Parses tender documents to extract text and tables."""
+    
     def __init__(self):
+        # Common section headers in Indian tenders
+        self.SCOPE_HEADERS = re.compile(r'(?i)^(?:Scope\s*of\s*Work|Brief\s*Description|Technical\s*Specifications|Scope\s*of\s*Supply)')
+        self.ELIGIBILITY_HEADERS = re.compile(r'(?i)^(?:Eligibility\s*Criteria|Pre[- ]?Qualification|Minimum\s*Qualification)')
+        self.BOQ_HEADERS = re.compile(r'(?i)^(?:Bill\s*of\s*Quantities|BOQ|Price\s*Bid|Schedule\s*of\s*Rates|Price\s*Schedule)')
+        
+    def extract_text(self, file_path: str, max_pages: int = 50) -> Optional[str]:
+        """Extract all text from a PDF, up to max_pages."""
         try:
-            import pdfplumber
-            self._backend = "pdfplumber"
-        except ImportError:
-            logger.warning("pdfplumber not available, falling back to PyPDF2")
-            self._backend = "pypdf2"
+            full_text = []
+            with pdfplumber.open(file_path) as pdf:
+                # Some govt PDFs have hundreds of boilerplate pages, so we limit
+                pages_to_read = min(len(pdf.pages), max_pages)
+                for i in range(pages_to_read):
+                    page = pdf.pages[i]
+                    text = page.extract_text()
+                    if text:
+                        full_text.append(text)
+                        
+            return "\n\n".join(full_text)
+        except Exception as e:
+            logger.error(f"Failed to extract text from {file_path}: {e}")
+            return None
 
-    def extract_text(self, pdf_path: str | Path) -> str:
+    def extract_sections(self, text: str) -> Dict[str, str]:
         """
-        Extract all text from a PDF file.
-
-        Args:
-            pdf_path: Path to the PDF file
-
-        Returns:
-            Extracted text as a single string
+        Attempt to split text into logical sections based on headers.
+        Since PDFs don't preserve semantic structure perfectly, this uses heuristics.
         """
-        pdf_path = Path(pdf_path)
-        if not pdf_path.exists():
-            raise FileNotFoundError(f"PDF not found: {pdf_path}")
-
-        logger.info(f"Extracting text from: {pdf_path.name} (backend: {self._backend})")
-
-        if self._backend == "pdfplumber":
-            return self._extract_with_pdfplumber(pdf_path)
-        else:
-            return self._extract_with_pypdf2(pdf_path)
-
-    def extract_text_from_bytes(self, pdf_bytes: bytes) -> str:
-        """Extract text from PDF bytes (e.g., downloaded from a URL)."""
-        if self._backend == "pdfplumber":
-            import pdfplumber
-            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-                return "\n".join(page.extract_text() or "" for page in pdf.pages)
-        else:
-            from PyPDF2 import PdfReader
-            reader = PdfReader(io.BytesIO(pdf_bytes))
-            return "\n".join(page.extract_text() or "" for page in reader.pages)
-
-    def extract_tables(self, pdf_path: str | Path) -> list[list[list[str]]]:
-        """
-        Extract tables from a PDF (requires pdfplumber).
-
-        Returns:
-            List of tables, where each table is a list of rows,
-            and each row is a list of cell values.
-        """
-        if self._backend != "pdfplumber":
-            logger.warning("Table extraction requires pdfplumber")
-            return []
-
-        import pdfplumber
+        sections = {
+            "scope": "",
+            "eligibility": "",
+            "boq": ""
+        }
+        
+        if not text:
+            return sections
+            
+        lines = text.split('\n')
+        current_section = None
+        
+        for line in lines:
+            line_clean = line.strip()
+            if not line_clean:
+                continue
+                
+            # Heuristic: headers are usually short
+            if len(line_clean) < 60:
+                if self.SCOPE_HEADERS.match(line_clean):
+                    current_section = "scope"
+                    continue
+                elif self.ELIGIBILITY_HEADERS.match(line_clean):
+                    current_section = "eligibility"
+                    continue
+                elif self.BOQ_HEADERS.match(line_clean):
+                    current_section = "boq"
+                    continue
+                    
+            if current_section:
+                sections[current_section] += line_clean + "\n"
+                
+        return sections
+        
+    def extract_tables(self, file_path: str, max_pages: int = 20) -> List[List[List[str]]]:
+        """Extract tables from the PDF, useful for BOQ extraction."""
         tables = []
-        with pdfplumber.open(pdf_path) as pdf:
-            for page in pdf.pages:
-                page_tables = page.extract_tables()
-                if page_tables:
-                    tables.extend(page_tables)
-
-        logger.info(f"Extracted {len(tables)} tables from {Path(pdf_path).name}")
-        return tables
-
-    def _extract_with_pdfplumber(self, pdf_path: Path) -> str:
-        import pdfplumber
-        with pdfplumber.open(pdf_path) as pdf:
-            pages = []
-            for page in pdf.pages:
-                text = page.extract_text()
-                if text:
-                    pages.append(text)
-            return "\n\n".join(pages)
-
-    def _extract_with_pypdf2(self, pdf_path: Path) -> str:
-        from PyPDF2 import PdfReader
-        reader = PdfReader(str(pdf_path))
-        pages = []
-        for page in reader.pages:
-            text = page.extract_text()
-            if text:
-                pages.append(text)
-        return "\n\n".join(pages)
+        try:
+            with pdfplumber.open(file_path) as pdf:
+                pages_to_read = min(len(pdf.pages), max_pages)
+                for i in range(pages_to_read):
+                    page = pdf.pages[i]
+                    # Extract tables with default settings
+                    page_tables = page.extract_tables()
+                    for table in page_tables:
+                        # Clean up None values
+                        clean_table = [[cell if cell else "" for cell in row] for row in table]
+                        tables.append(clean_table)
+            return tables
+        except Exception as e:
+            logger.error(f"Failed to extract tables from {file_path}: {e}")
+            return []

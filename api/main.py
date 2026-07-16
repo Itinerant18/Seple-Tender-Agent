@@ -1,24 +1,36 @@
 """
 SEPLE Tender API
-FastAPI service providing internal access to tender data.
+FastAPI backend for internal tooling, stats dashboard, and ad-hoc scans.
 """
-import os
+import uuid
 import logging
-from datetime import datetime
-from typing import Optional
-
-from fastapi import FastAPI, HTTPException, Query
+from typing import List, Optional
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from contextlib import asynccontextmanager
 
+from database import repository
+from database.db import init_schema, close_pool
+from database.models import FitLabel, TenderStatus, UserFeedback
+from scheduler.daily_scan import ScannerOrchestrator
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(
-    title="SEPLE Tender Intelligence API",
-    description="Internal API for the SEPLE Tender Intelligence Platform",
-    version="0.1.0",
-)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    logger.info("Starting SEPLE Tender API...")
+    await init_schema()
+    yield
+    # Shutdown
+    logger.info("Shutting down SEPLE Tender API...")
+    await close_pool()
 
+app = FastAPI(title="SEPLE Tender Intelligence Platform", lifespan=lifespan)
+
+# Allow CORS for internal dashboard
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -27,94 +39,70 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# ─── Models ────────────────────────────────────────────────────
-
-class TenderResponse(BaseModel):
-    id: str
-    title: str
-    source: str
-    category: Optional[str] = None
-    value_inr: Optional[float] = None
-    value_formatted: Optional[str] = None
-    deadline: Optional[str] = None
-    status: str = "new"
-    relevance_score: Optional[float] = None
-    url: Optional[str] = None
-
-
-class ScanTriggerResponse(BaseModel):
-    message: str
-    started_at: str
-
-
-class HealthResponse(BaseModel):
-    status: str
-    version: str
-    timestamp: str
-
-
-# ─── Endpoints ─────────────────────────────────────────────────
-
-@app.get("/health", response_model=HealthResponse)
+@app.get("/health")
 async def health_check():
-    """Health check endpoint."""
-    return HealthResponse(
-        status="healthy",
-        version="0.1.0",
-        timestamp=datetime.utcnow().isoformat(),
-    )
-
-
-@app.get("/tenders", response_model=list[TenderResponse])
-async def list_tenders(
-    status: Optional[str] = Query(None, description="Filter by status"),
-    source: Optional[str] = Query(None, description="Filter by source"),
-    category: Optional[str] = Query(None, description="Filter by category"),
-    min_value: Optional[float] = Query(None, description="Minimum value in INR"),
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
-):
-    """List tenders with optional filters."""
-    # TODO: Replace with actual database query
-    return []
-
-
-@app.get("/tenders/{tender_id}", response_model=TenderResponse)
-async def get_tender(tender_id: str):
-    """Get a specific tender by ID."""
-    # TODO: Replace with actual database lookup
-    raise HTTPException(status_code=404, detail="Tender not found")
-
-
-@app.post("/scan/trigger", response_model=ScanTriggerResponse)
-async def trigger_scan():
-    """Manually trigger a tender scan."""
-    from scheduler.daily_scan import DailyScanScheduler
-
-    scheduler = DailyScanScheduler()
-    # Run in background
-    import asyncio
-    asyncio.create_task(scheduler.run_daily_scan())
-
-    return ScanTriggerResponse(
-        message="Scan triggered successfully",
-        started_at=datetime.utcnow().isoformat(),
-    )
-
-
-@app.get("/stats")
-async def get_stats():
-    """Get platform statistics."""
-    # TODO: Replace with actual database stats
+    """Service health check."""
+    from database.db import health_check as db_health
+    db_ok = await db_health()
     return {
-        "total_tenders": 0,
-        "tenders_today": 0,
-        "sources_active": 0,
-        "last_scan": None,
+        "status": "ok" if db_ok else "degraded",
+        "database": "connected" if db_ok else "disconnected",
+        "service": "Tender API"
     }
 
+@app.get("/api/tenders")
+async def get_tenders(
+    status: Optional[TenderStatus] = None,
+    fit: Optional[FitLabel] = None,
+    source: Optional[str] = None,
+    category: Optional[str] = None,
+    min_value: Optional[float] = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0)
+):
+    """List tenders with optional filtering."""
+    tenders = await repository.list_tenders(
+        status=status,
+        fit=fit,
+        source_name=source,
+        category=category,
+        min_value=min_value,
+        limit=limit,
+        offset=offset
+    )
+    return {"data": tenders, "count": len(tenders)}
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+@app.get("/api/tenders/{tender_id}")
+async def get_tender_detail(tender_id: uuid.UUID):
+    """Get full details of a specific tender."""
+    tender = await repository.get_tender(tender_id)
+    if not tender:
+        raise HTTPException(status_code=404, detail="Tender not found")
+    return tender
+
+@app.post("/api/tenders/{tender_id}/feedback")
+async def record_feedback(tender_id: uuid.UUID, feedback: UserFeedback, notes: str = None):
+    """Record human feedback on a tender (F14)."""
+    tender = await repository.get_tender(tender_id)
+    if not tender:
+        raise HTTPException(status_code=404, detail="Tender not found")
+        
+    await repository.record_feedback(tender_id, feedback, notes)
+    return {"status": "success", "message": "Feedback recorded"}
+
+@app.get("/api/stats")
+async def get_dashboard_stats():
+    """Get high-level statistics for the dashboard."""
+    return await repository.get_stats()
+
+@app.post("/api/scan/trigger")
+async def trigger_scan(background_tasks: BackgroundTasks):
+    """Manually trigger the daily scan pipeline in the background."""
+    orchestrator = ScannerOrchestrator()
+    background_tasks.add_task(orchestrator.run_daily_scan)
+    return {"status": "accepted", "message": "Scan triggered in background"}
+
+@app.get("/api/tenders/export")
+async def export_tenders():
+    """Export tenders to Excel/CSV (Placeholder for F13)"""
+    return {"status": "not_implemented", "message": "Excel export coming in Phase 2"}

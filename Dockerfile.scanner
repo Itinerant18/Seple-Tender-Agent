@@ -1,0 +1,28 @@
+FROM mcr.microsoft.com/playwright/python:v1.44.0-jammy
+
+WORKDIR /app
+
+# Install system dependencies needed for asyncpg and Playwright
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libpq-dev \
+    cron \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install
+COPY requirements-scanner.txt .
+RUN pip install --no-cache-dir -r requirements-scanner.txt
+
+# Install playwright browsers (though the base image should have them)
+RUN playwright install chromium
+
+# Copy application code
+COPY . .
+
+# Set environment variable to indicate we're running in Docker
+ENV DOCKER_ENV=true
+
+# Long-running scheduler: scans daily at SCAN_HOUR (7 days/week), sends digest
+# on working days, runs milestone reminders. Never exits, so restart:unless-stopped
+# no longer re-triggers an immediate rescrape loop.
+CMD ["python", "-m", "scheduler.run"]

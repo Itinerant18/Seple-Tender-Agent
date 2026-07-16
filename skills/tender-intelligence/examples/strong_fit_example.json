@@ -1,0 +1,60 @@
+{
+  "tender_reference": "GEM/2025/B/6045815",
+  "title": "Supply, Installation, Testing and Commissioning of Fire Detection and Alarm System",
+  "tendering_authority": "ISRO, Sriharikota",
+  "publication_date": "2025-04-15",
+  "submission_deadline": "2025-05-10 17:00",
+  "estimated_value": "₹45,00,000",
+  "emd_amount": "Exempted (GeM)",
+  "tender_fee": "Nil (GeM)",
+  "project_location": "Sriharikota, Andhra Pradesh",
+  "product_categories": ["Fire Detection & Alarm"],
+  "tender_type": "SITC",
+  "source_portal": "GeM",
+  "source_url": "https://gem.gov.in/bid/GEM-2025-B-6045815",
+
+  "fit_classification": "Strong Fit",
+  "confidence": "High",
+  "matched_keywords": ["Fire Alarm", "Smoke", "Detector", "Module", "Addressable"],
+  "matched_categories": ["Fire Detection & Alarm"],
+  "matching_rationale": "Direct match with SEPLE's core fire detection and alarm business. ISRO is a premier government organization. Tender requires supply, installation, testing, and commissioning of addressable fire alarm system with smoke detectors and modules — exactly aligned with company capability. OEM brands Notifier/Morley mentioned in specs align with company's OEM relationships.",
+
+  "scope_summary": "Supply, installation, testing and commissioning of an addressable fire detection and alarm system at ISRO Sriharikota campus. Includes addressable fire alarm panels, smoke detectors, MCPs, modules, hooters, and associated wiring. 3-year warranty required.",
+  "key_requirements": [
+    "Addressable fire alarm panel with minimum 4 loops",
+    "Optical smoke detectors (qty: 120)",
+    "Manual call points (qty: 25)",
+    "Addressable modules (qty: 15)",
+    "3-year comprehensive warranty post-commissioning",
+    "Compliance with NBC 2016 and IS standards"
+  ],
+
+  "eligibility_assessment": {
+    "turnover_requirement": "₹1.5 Cr average annual turnover in last 3 financial years",
+    "experience_requirement": "Minimum 2 similar completed works of ₹15 Lakh each in fire alarm systems",
+    "oem_authorization": "Required — MAF from fire alarm panel manufacturer",
+    "certifications": ["ISO 9001:2015"],
+    "local_office": "Not required",
+    "other_conditions": ["Must have valid GST registration", "PAN required"],
+    "eligibility_gaps": [],
+    "eligibility_status": "Likely Eligible"
+  },
+
+  "mandatory_activities": {
+    "pre_bid_meeting": null,
+    "site_visit": {"date": "2025-04-25", "location": "ISRO Sriharikota", "mandatory": false},
+    "demonstration": null,
+    "clarification_deadline": "2025-05-01"
+  },
+
+  "uncertainty_notes": [],
+
+  "documents_reviewed": [
+    {"name": "NIT and Technical Specifications.pdf", "reviewed": true},
+    {"name": "BOQ.xlsx", "reviewed": true}
+  ],
+
+  "kavach_routing": false,
+  "instant_alert_trigger": true,
+  "instant_alert_reason": "Strong Fit in core category (Fire Detection & Alarm) with premier government client (ISRO)"
+}

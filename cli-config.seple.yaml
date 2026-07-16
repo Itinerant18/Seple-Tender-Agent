@@ -1,0 +1,44 @@
+# SEPLE Tender Intelligence Agent - Hermes Configuration
+# Implements PRD 19.2
+
+agent:
+  name: "SEPLE Tender Agent"
+  version: "1.0.0"
+  description: "Autonomous agent for discovering and classifying procurement tenders for Security Engineers Pvt. Ltd."
+  
+  # Core constraints (PRD 9.1)
+  constraints:
+    - "READ_ONLY_PORTAL_ACCESS"
+    - "NO_EXTERNAL_COMMUNICATION"
+    - "NO_FINANCIAL_TRANSACTIONS"
+
+llm:
+  provider: "openai"
+  model: "gpt-5.5"
+  temperature: 0.1  # Low temperature for analytical consistency
+
+skills:
+  active:
+    - "tender-intelligence"
+  paths:
+    - "./skills/"
+
+# Pipeline scheduling lives in the tender-scanner container (scheduler/run.py):
+# daily scan 7 days/week (PRD 8.4), digest on working days, milestone reminders.
+# Do NOT duplicate those jobs here — the hermes image lacks playwright/asyncpg
+# and double-scheduling would double-hit the portals (PRD R5).
+cron:
+  enabled: false
+
+gateway:
+  enabled: true
+  channels:
+    - type: "slack"
+      webhook_env: "SLACK_WEBHOOK_URL"
+    - type: "email"
+      smtp_env: "SMTP_SERVER"
+
+memory:
+  enabled: true
+  backend: "postgres"
+  url_env: "DATABASE_URL"

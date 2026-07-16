@@ -1,0 +1,69 @@
+{
+  "tender_reference": "GEM/2025/B/6068542",
+  "title": "Supply of CCTV Surveillance System with Installation and Commissioning",
+  "tendering_authority": "Indian Navy, Kolkata",
+  "publication_date": "2025-04-20",
+  "submission_deadline": "2025-05-15 15:00",
+  "estimated_value": "₹1,20,00,000",
+  "emd_amount": "Exempted (GeM)",
+  "tender_fee": "Nil (GeM)",
+  "project_location": "Kolkata, West Bengal",
+  "product_categories": ["Video Surveillance"],
+  "tender_type": "SITC",
+  "source_portal": "GeM",
+  "source_url": "https://gem.gov.in/bid/GEM-2025-B-6068542",
+
+  "fit_classification": "Potential Fit",
+  "confidence": "Medium",
+  "matched_keywords": ["CCTV", "Surveillance", "Camera", "NVR", "Switch", "Installation"],
+  "matched_categories": ["Video Surveillance", "Supporting Infrastructure"],
+  "matching_rationale": "Product match is clear — CCTV surveillance system SITC. Indian Navy is a high-profile defence customer. However, this tender requires careful evaluation: (1) Defence procurement often has specific vendor empanelment requirements, (2) Commercial competitiveness and positioning against established defence vendors needs assessment, (3) Technical specifications may reference defence-grade standards not typically handled.",
+
+  "scope_summary": "Supply, installation, testing, and commissioning of a CCTV surveillance system for Indian Navy establishment in Kolkata. Includes IP cameras (4MP), NVRs, PoE switches, cabling, and monitoring station setup. 5-year CAMC required.",
+  "key_requirements": [
+    "4MP IP dome cameras (qty: 80)",
+    "4MP IP bullet cameras (qty: 40)",
+    "64-channel NVRs (qty: 4)",
+    "PoE switches and fiber backbone",
+    "Central monitoring station with video wall",
+    "5-year Comprehensive Annual Maintenance Contract"
+  ],
+
+  "eligibility_assessment": {
+    "turnover_requirement": "₹3 Cr average annual turnover in last 3 financial years",
+    "experience_requirement": "Minimum 3 similar completed works of ₹40 Lakh each in CCTV/surveillance",
+    "oem_authorization": "Required — MAF from camera and NVR manufacturer",
+    "certifications": ["ISO 9001:2015", "ISO 27001 preferred"],
+    "local_office": "Not specified",
+    "other_conditions": ["Defence establishment — security clearance may be required", "Site visit logistics may be restricted"],
+    "eligibility_gaps": [
+      "Defence vendor empanelment status needs verification",
+      "Security clearance requirement unclear — needs human check",
+      "5-year CAMC commitment — resource and commercial feasibility review needed"
+    ],
+    "eligibility_status": "Gaps Identified"
+  },
+
+  "mandatory_activities": {
+    "pre_bid_meeting": {"date": "2025-04-28 11:00", "location": "Naval Dockyard, Kolkata", "mandatory": true},
+    "site_visit": {"date": "2025-04-28", "location": "Naval Dockyard, Kolkata", "mandatory": true},
+    "demonstration": null,
+    "clarification_deadline": "2025-05-05"
+  },
+
+  "uncertainty_notes": [
+    "Defence-grade specification compliance needs technical team review",
+    "Security clearance requirement not explicitly stated but likely for defence establishment",
+    "Commercial competitiveness against established defence vendors needs assessment"
+  ],
+
+  "documents_reviewed": [
+    {"name": "NIT.pdf", "reviewed": true},
+    {"name": "Technical Specifications.pdf", "reviewed": true},
+    {"name": "BOQ.xlsx", "reviewed": true}
+  ],
+
+  "kavach_routing": false,
+  "instant_alert_trigger": true,
+  "instant_alert_reason": "High-value (₹1.2 Cr) CCTV tender with mandatory pre-bid meeting on 28 April — time-sensitive"
+}

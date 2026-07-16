@@ -1,86 +1,59 @@
 """
-SEPLE Tender Deduplicator
-Deduplicates tenders across multiple sources using fingerprinting.
+SEPLE Tender Processor — Deduplicator
+Handles generating unique fingerprints for tenders to prevent duplicates
+across multiple sources (e.g. same tender on TenderTiger and Tender247).
 """
-import logging
-from datetime import datetime
+import hashlib
+import re
+from database.models import RawTender
 
-logger = logging.getLogger(__name__)
-
-
-class TenderDeduplicator:
-    """Removes duplicate tenders using fingerprint matching and fuzzy title comparison."""
-
-    def __init__(self, similarity_threshold: float = 0.85):
-        self.similarity_threshold = similarity_threshold
-        self._seen_fingerprints: set[str] = set()
-
-    def deduplicate(self, tenders: list[dict]) -> list[dict]:
-        """
-        Remove duplicate tenders from a list.
-
-        Uses exact fingerprint matching first, then falls back to
-        fuzzy title similarity for near-duplicates.
-
-        Args:
-            tenders: List of tender dicts (must have 'fingerprint' and 'title' keys)
-
-        Returns:
-            Deduplicated list of tenders
-        """
-        unique = []
-        duplicates_removed = 0
-
-        for tender in tenders:
-            fp = tender.get("fingerprint", "")
-
-            # Exact fingerprint match
-            if fp and fp in self._seen_fingerprints:
-                duplicates_removed += 1
-                continue
-
-            # Fuzzy title match against existing unique tenders
-            if self._is_near_duplicate(tender, unique):
-                duplicates_removed += 1
-                continue
-
-            if fp:
-                self._seen_fingerprints.add(fp)
-            unique.append(tender)
-
-        logger.info(
-            f"Deduplication: {len(tenders)} input → {len(unique)} unique "
-            f"({duplicates_removed} duplicates removed)"
-        )
-        return unique
-
-    def _is_near_duplicate(self, tender: dict, existing: list[dict]) -> bool:
-        """Check if a tender is a near-duplicate of any existing tender."""
-        title = tender.get("title", "").lower().strip()
-        if not title:
-            return False
-
-        for existing_tender in existing:
-            existing_title = existing_tender.get("title", "").lower().strip()
-            similarity = self._jaccard_similarity(title, existing_title)
-            if similarity >= self.similarity_threshold:
-                return True
-
-        return False
-
+class Deduplicator:
+    
     @staticmethod
-    def _jaccard_similarity(text1: str, text2: str) -> float:
-        """Compute Jaccard similarity between two strings (word-level)."""
-        words1 = set(text1.split())
-        words2 = set(text2.split())
-
-        if not words1 or not words2:
-            return 0.0
-
-        intersection = words1 & words2
-        union = words1 | words2
-        return len(intersection) / len(union)
-
-    def reset(self):
-        """Clear the fingerprint cache."""
-        self._seen_fingerprints.clear()
+    def generate_fingerprint(tender: RawTender) -> str:
+        """
+        Generate a unique hash for a tender to enable cross-source deduplication.
+        Strategy:
+        1. If a strong reference number (GeM, CPPP) exists, use that.
+        2. Otherwise, hash a combination of title (normalized), authority, and deadline.
+        """
+        
+        # 1. Use strong reference if available
+        if tender.tender_reference:
+            # Clean up the reference (remove spaces, uppercase)
+            clean_ref = re.sub(r'[^A-Z0-9/_-]', '', tender.tender_reference.upper())
+            # If it looks like a real reference (not just a generic internal ID), use it
+            if len(clean_ref) > 5:
+                return hashlib.md5(clean_ref.encode('utf-8')).hexdigest()
+                
+        # 2. Fallback to heuristic composite key
+        components = []
+        
+        # Normalize title: lowercase, remove punctuation, remove extra spaces
+        if tender.title:
+            clean_title = re.sub(r'[^\w\s]', '', tender.title.lower())
+            clean_title = re.sub(r'\s+', ' ', clean_title).strip()
+            # Only use the first 50 chars to avoid minor variations breaking the hash
+            components.append(clean_title[:50])
+            
+        # Add Authority
+        if tender.issuing_authority:
+            clean_auth = re.sub(r'[^\w\s]', '', tender.issuing_authority.lower())
+            components.append(clean_auth.strip())
+            
+        # Add deadline date (ignore time to avoid timezone/format differences)
+        if tender.deadline:
+            # Extract just the date part (YYYY-MM-DD) if possible
+            date_match = re.search(r'(\d{4}[-/]\d{2}[-/]\d{2}|\d{2}[-/]\d{2}[-/]\d{4})', tender.deadline)
+            if date_match:
+                components.append(date_match.group(1).replace('/', '-'))
+            else:
+                components.append(tender.deadline.split()[0])
+                
+        # If we have nothing, fallback to URL
+        if not components and tender.url:
+            components.append(tender.url)
+            
+        # Combine and hash
+        fingerprint_str = "|".join(components)
+        return hashlib.md5(fingerprint_str.encode('utf-8')).hexdigest()

@@ -33,7 +33,7 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-changeme}@db:5432/tenders
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
     depends_on:
       db:
         condition: service_healthy
@@ -67,7 +67,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
       TENDER_API_URL: http://tender-api:8000
     depends_on:
       - tender-api

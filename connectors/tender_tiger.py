@@ -1,105 +1,171 @@
 """
-SEPLE Tender Tiger Connector
-Playwright-based scraper for TenderTiger.com portal.
+SEPLE Tender Connectors — TenderTiger
+Scraper for tendertiger.com using Playwright.
 """
 import os
-import asyncio
 import logging
-from datetime import datetime
+import asyncio
+from typing import List, Optional
+from datetime import datetime, timedelta
+from playwright.async_api import async_playwright, Page, BrowserContext
+from database.models import RawTender, TenderDocument
+from .base import BaseConnector
 
 logger = logging.getLogger(__name__)
 
-
-class TenderTigerConnector:
-    """Scrapes tender listings from TenderTiger.com using Playwright."""
-
-    BASE_URL = "https://www.tendertiger.com"
-
+class TenderTigerConnector(BaseConnector):
     def __init__(self):
+        super().__init__(source_name="TenderTiger", base_url="https://www.tendertiger.com")
         self.email = os.getenv("TENDER_TIGER_EMAIL")
         self.password = os.getenv("TENDER_TIGER_PASSWORD")
+        self.playwright = None
+        self.browser = None
+        self.context: Optional[BrowserContext] = None
+        self.page: Optional[Page] = None
+
+    async def _init_browser(self):
+        if not self.playwright:
+            self.playwright = await async_playwright().start()
+            self.browser = await self.playwright.chromium.launch(headless=True)
+            self.context = await self.browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+            self.page = await self.context.new_page()
+            self.page.set_default_timeout(30000)
+
+    async def login(self) -> bool:
+        """Authenticate with TenderTiger."""
         if not self.email or not self.password:
-            raise ValueError("TENDER_TIGER_EMAIL and TENDER_TIGER_PASSWORD must be set in .env")
+            logger.error("TenderTiger credentials not found in environment")
+            return False
 
-    async def login(self, page):
-        """Authenticate with TenderTiger portal."""
-        logger.info("Logging into TenderTiger...")
-        await page.goto(f"{self.BASE_URL}/login")
-        await page.fill('input[name="email"]', self.email)
-        await page.fill('input[name="password"]', self.password)
-        await page.click('button[type="submit"]')
-        await page.wait_for_load_state("networkidle")
-        logger.info("TenderTiger login successful")
+        try:
+            await self._init_browser()
+            logger.info("Navigating to TenderTiger login...")
+            # Note: Actual login URL and selectors need to be verified against the live site.
+            await self.page.goto(f"{self.base_url}/Login.aspx")
+            
+            # Fill login form (selectors are placeholders for the real DOM)
+            await self.page.fill("input[name='txtEmail']", self.email)
+            await self.page.fill("input[name='txtPassword']", self.password)
+            await self.page.click("input[type='submit']")
+            
+            # Wait for navigation or specific element that indicates successful login
+            await self.page.wait_for_load_state("networkidle")
+            
+            # Check for error messages or verify we are logged in
+            if "Login.aspx" not in self.page.url:
+                self.is_logged_in = True
+                logger.info("Successfully logged into TenderTiger")
+                return True
+            else:
+                logger.error("Failed to login to TenderTiger. Check credentials.")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error during TenderTiger login: {e}")
+            return False
 
-    async def scrape_tenders(self, page, keywords: list[str] = None, max_pages: int = 5) -> list[dict]:
-        """
-        Scrape tender listings matching given keywords.
-
-        Args:
-            page: Playwright page object
-            keywords: List of search keywords to filter tenders
-            max_pages: Maximum number of result pages to scrape
-
-        Returns:
-            List of tender dicts with title, deadline, value, category, url, source
-        """
+    async def scrape_tenders(self, keywords: List[str] = None, days_back: int = 1) -> List[RawTender]:
+        """Scrape tenders from TenderTiger."""
+        if not self.is_logged_in:
+            await self.login()
+            
         tenders = []
-        search_terms = keywords or ["IT", "software", "digital", "cloud"]
+        try:
+            # Note: This is placeholder logic for navigating to the search page and extracting data.
+            # Real implementation requires exact DOM inspection of tendertiger.com.
+            logger.info(f"Starting TenderTiger scrape for keywords: {keywords}")
+            
+            await self.page.goto(f"{self.base_url}/TenderSearch.aspx")
+            
+            # For each keyword, perform a search (or use advanced search if supported)
+            for keyword in (keywords or ["security"]):
+                logger.info(f"Searching for '{keyword}'...")
+                await self.page.fill("input[name='txtSearch']", keyword)
+                await self.page.click("input[name='btnSearch']")
+                await self.page.wait_for_load_state("networkidle")
+                
+                # Extract tender rows (placeholder selector)
+                rows = await self.page.query_selector_all("tr.tender-row")
+                for row in rows:
+                    title_elem = await row.query_selector("a.tender-title")
+                    ref_elem = await row.query_selector("span.tender-ref")
+                    val_elem = await row.query_selector("span.tender-value")
+                    date_elem = await row.query_selector("span.tender-deadline")
+                    
+                    title = await title_elem.inner_text() if title_elem else "Unknown"
+                    url = await title_elem.get_attribute("href") if title_elem else None
+                    ref = await ref_elem.inner_text() if ref_elem else None
+                    val = await val_elem.inner_text() if val_elem else None
+                    deadline = await date_elem.inner_text() if date_elem else None
+                    
+                    if url and not url.startswith("http"):
+                        url = f"{self.base_url}/{url.lstrip('/')}"
+                        
+                    raw_tender = RawTender(
+                        title=title.strip(),
+                        tender_reference=ref.strip() if ref else None,
+                        value=val.strip() if val else None,
+                        deadline=deadline.strip() if deadline else None,
+                        url=url,
+                        source=self.source_name,
+                        search_term=keyword,
+                        scraped_at=datetime.utcnow().isoformat()
+                    )
+                    tenders.append(raw_tender)
+                    
+                # Respectful scraping delay
+                await asyncio.sleep(2)
+                
+            logger.info(f"Scraped {len(tenders)} raw tenders from TenderTiger")
+            return tenders
+            
+        except Exception as e:
+            logger.error(f"Error scraping TenderTiger: {e}")
+            return tenders
 
-        for term in search_terms:
-            logger.info(f"Searching TenderTiger for: {term}")
-            await page.goto(f"{self.BASE_URL}/search?q={term}")
-            await page.wait_for_load_state("networkidle")
+    async def download_documents(self, tender_id: str, tender_url: str) -> List[TenderDocument]:
+        """Download documents for a specific tender from TenderTiger."""
+        docs = []
+        if not self.is_logged_in:
+            await self.login()
+            
+        try:
+            logger.info(f"Downloading documents for tender {tender_id} at {tender_url}")
+            await self.page.goto(tender_url)
+            
+            # Find download links (placeholder selector)
+            download_links = await self.page.query_selector_all("a.doc-download")
+            
+            import uuid
+            import aiohttp
+            
+            # In a real implementation, we would probably use self.page.expect_download()
+            # or extract the URL and download using aiohttp with the session cookies.
+            for link in download_links:
+                doc_name = await link.inner_text()
+                doc_url = await link.get_attribute("href")
+                
+                # Placeholder for actual download logic
+                logger.info(f"Found document: {doc_name}")
+                
+                docs.append(TenderDocument(
+                    tender_id=uuid.UUID(tender_id) if isinstance(tender_id, str) else tender_id,
+                    filename=doc_name.strip(),
+                    file_url=doc_url
+                ))
+                
+            return docs
+            
+        except Exception as e:
+            logger.error(f"Error downloading documents from TenderTiger: {e}")
+            return docs
 
-            for page_num in range(1, max_pages + 1):
-                listings = await page.query_selector_all(".tender-listing-item")
-
-                for listing in listings:
-                    try:
-                        tender = {
-                            "title": await listing.inner_text(".tender-title"),
-                            "deadline": await listing.inner_text(".tender-deadline"),
-                            "value": await listing.inner_text(".tender-value"),
-                            "category": await listing.inner_text(".tender-category"),
-                            "url": await listing.get_attribute("a", "href"),
-                            "source": "TenderTiger",
-                            "scraped_at": datetime.utcnow().isoformat(),
-                            "search_term": term,
-                        }
-                        tenders.append(tender)
-                    except Exception as e:
-                        logger.warning(f"Failed to parse listing: {e}")
-                        continue
-
-                # Navigate to next page
-                next_btn = await page.query_selector(".pagination .next")
-                if next_btn:
-                    await next_btn.click()
-                    await page.wait_for_load_state("networkidle")
-                else:
-                    break
-
-        logger.info(f"Scraped {len(tenders)} tenders from TenderTiger")
-        return tenders
-
-    async def get_tender_details(self, page, tender_url: str) -> dict:
-        """Scrape full details from an individual tender page."""
-        await page.goto(tender_url)
-        await page.wait_for_load_state("networkidle")
-
-        details = {
-            "url": tender_url,
-            "full_description": await page.inner_text(".tender-description"),
-            "documents": [],
-            "scraped_at": datetime.utcnow().isoformat(),
-        }
-
-        # Extract attached documents
-        doc_links = await page.query_selector_all(".document-download a")
-        for doc in doc_links:
-            details["documents"].append({
-                "name": await doc.inner_text(),
-                "url": await doc.get_attribute("href"),
-            })
-
-        return details
+    async def close(self):
+        """Clean up Playwright resources."""
+        if self.browser:
+            await self.browser.close()
+        if self.playwright:
+            await self.playwright.stop()
+        logger.info("TenderTiger connector closed")
