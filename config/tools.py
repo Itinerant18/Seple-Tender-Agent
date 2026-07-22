@@ -41,7 +41,8 @@ class ApifyConfig:
     def __post_init__(self):
         self.actors = {
             "gem_portal": "krawlify/gem-portal-scraper",
-            "cppp_portal": "krawlify/cppp-tender-scraper",
+            # verified live 22-07-2026; covers CPPP + IOCL + state + defence portals
+            "cppp_portal": "jungle_synthesizer/india-eprocure-tender-scraper",
         }
 
 @dataclass

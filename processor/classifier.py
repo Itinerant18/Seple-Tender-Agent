@@ -1,22 +1,51 @@
 """
 SEPLE Tender Processor — Classifier
-Orchestrates LLM-based classification of tenders using the OpenRouter API or Hermes Agent.
+Classifies tenders through the Hermes inference router (agent.auxiliary_client.
+call_llm), so classification uses whatever provider/model Hermes is configured
+with — main provider, OpenRouter, Nous, native Anthropic, or a custom endpoint
+— with Hermes' own fallback chain. Pin a model via config.yaml:
+    auxiliary:
+      tender_classification:
+        provider: anthropic
+        model: claude-sonnet-5
 """
 import os
+import re
 import json
+import asyncio
 import logging
 from typing import Dict, Any, Optional
 from database.models import RawTender, TenderAnalysis, FitLabel, ConfidenceLevel, EligibilityAssessment, DocumentReview
-import httpx
+
+from agent.auxiliary_client import call_llm
 
 logger = logging.getLogger(__name__)
 
+AUX_TASK = "tender_classification"
+
 class TenderClassifier:
-    """Classifies tenders using LLM based on the SEPLE SKILL.md guidelines."""
-    
+    """Classifies tenders using the Hermes LLM router + the SEPLE SKILL.md guidelines."""
+
     def __init__(self):
-        self.api_key = os.getenv("OPENAI_API_KEY")
-        self.model = os.getenv("LLM_MODEL", "gpt-5.5")
+        # Route through Hermes' call_llm. The scanner container has no Hermes
+        # config.yaml, so call_llm's auto-detect can't find OpenAI on its own
+        # (its bare-key chain is OpenRouter/Nous/GLM-family, not OpenAI). When
+        # OPENAI_API_KEY / ANTHROPIC_API_KEY is set we hand call_llm an explicit
+        # provider so it still does the request/formatting/fallback, just
+        # without needing config.yaml. auto = let the router decide (used when
+        # Hermes config IS present, e.g. auxiliary.tender_classification).
+        self.model = os.getenv("LLM_MODEL") or None
+        self.provider = None
+        self.api_key = None
+        if os.getenv("OPENROUTER_API_KEY"):
+            self.provider, self.api_key = "openrouter", os.getenv("OPENROUTER_API_KEY")
+            self.model = self.model or "openai/gpt-4.1"
+        elif os.getenv("ANTHROPIC_API_KEY"):
+            self.provider, self.api_key = "anthropic", os.getenv("ANTHROPIC_API_KEY")
+            self.model = self.model or "claude-sonnet-5"
+        elif os.getenv("OPENAI_API_KEY"):
+            self.provider, self.api_key = "openai", os.getenv("OPENAI_API_KEY")
+            self.model = self.model or "gpt-4.1"
         self.system_prompt = self._load_skill()
 
     def _load_skill(self) -> str:
@@ -32,45 +61,53 @@ class TenderClassifier:
         return "You are a tender classification agent for Security Engineers Pvt Ltd."
 
     async def classify(self, raw_tender: RawTender, document_text: str = None) -> TenderAnalysis:
-        """Classify a tender using the LLM."""
-        if not self.api_key:
-            logger.warning("OPENAI_API_KEY not set. Returning dummy classification.")
-            return self._fallback_classification(raw_tender)
-            
+        """Classify a tender via the Hermes inference router."""
         prompt = self._build_prompt(raw_tender, document_text)
-        
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": prompt},
+        ]
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                response = await client.post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                    },
-                    json={
-                        "model": self.model,
-                        "messages": [
-                            {"role": "system", "content": self.system_prompt},
-                            {"role": "user", "content": prompt}
-                        ],
-                        "response_format": {"type": "json_object"}
-                    }
-                )
-                response.raise_for_status()
-                result = response.json()
-                
-                content = result["choices"][0]["message"]["content"]
-                
-                # Parse the JSON response
-                try:
-                    data = json.loads(content)
-                    return self._parse_llm_response(raw_tender, data)
-                except json.JSONDecodeError:
-                    logger.error("Failed to parse LLM response as JSON")
-                    return self._fallback_classification(raw_tender)
-                    
+            # call_llm is synchronous — offload so we don't block the event loop.
+            result = await asyncio.to_thread(
+                call_llm,
+                task=AUX_TASK,
+                provider=self.provider,  # explicit when set; None → router auto-detect
+                api_key=self.api_key,
+                model=self.model,
+                messages=messages,
+                temperature=0.1,
+                max_tokens=2000,
+            )
+            content = result.choices[0].message.content
+            data = self._extract_json(content)
+            if data is None:
+                logger.error("LLM response was not parseable JSON")
+                return self._fallback_classification(raw_tender)
+            return self._parse_llm_response(raw_tender, data)
         except Exception as e:
+            # RuntimeError("No LLM provider configured…") lands here too → fallback
             logger.error(f"LLM Classification failed: {e}")
             return self._fallback_classification(raw_tender)
+
+    @staticmethod
+    def _extract_json(content: str) -> Optional[dict]:
+        """Parse a JSON object from the model's reply, tolerating markdown fences
+        and prose (Anthropic/others don't honour response_format=json_object)."""
+        if not content:
+            return None
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            pass
+        # strip ```json fences or grab the outermost {...}
+        m = re.search(r"\{.*\}", content, re.DOTALL)
+        if m:
+            try:
+                return json.loads(m.group(0))
+            except json.JSONDecodeError:
+                return None
+        return None
             
     def _build_prompt(self, raw: RawTender, doc_text: str) -> str:
         prompt = f"""

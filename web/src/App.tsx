@@ -21,13 +21,13 @@ import {
 import {
   Activity,
   BarChart3,
-  BookOpen,
   Clock,
   Code,
   Cpu,
   Database,
   Download,
   Eye,
+  FileSearch,
   FolderOpen,
   FileText,
   Globe,
@@ -38,18 +38,14 @@ import {
   Package,
   PanelLeftClose,
   PanelLeftOpen,
-  Plug,
   Puzzle,
-  Radio,
   RotateCw,
   Settings,
   Shield,
-  ShieldCheck,
   Sparkles,
   Star,
   Terminal,
   Users,
-  Webhook,
   Wrench,
   X,
   Zap,
@@ -72,6 +68,7 @@ import { ProfileSwitcher } from "@/components/ProfileSwitcher";
 import { ProfileScopeBanner } from "@/components/ProfileScopeBanner";
 import { useSystemActions } from "@/contexts/useSystemActions";
 import type { SystemAction } from "@/contexts/system-actions-context";
+import TendersPage from "@/pages/TendersPage";
 import ConfigPage from "@/pages/ConfigPage";
 import DocsPage from "@/pages/DocsPage";
 import EnvPage from "@/pages/EnvPage";
@@ -103,7 +100,7 @@ import { api } from "@/lib/api";
 import type { StatusResponse, UpdateCheckResponse } from "@/lib/api";
 
 function RootRedirect() {
-  return <Navigate to="/sessions" replace />;
+  return <Navigate to="/tenders" replace />;
 }
 
 function UnknownRouteFallback({ pluginsLoading }: { pluginsLoading: boolean }) {
@@ -111,7 +108,7 @@ function UnknownRouteFallback({ pluginsLoading }: { pluginsLoading: boolean }) {
     // Render nothing during the plugin-load window — a spinner here would just flash.
     return null;
   }
-  return <Navigate to="/sessions" replace />;
+  return <Navigate to="/tenders" replace />;
 }
 
 const CHAT_NAV_ITEM: NavItem = {
@@ -132,6 +129,7 @@ const CHAT_NAV_ITEM: NavItem = {
  */
 const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/": RootRedirect,
+  "/tenders": TendersPage,
   "/sessions": SessionsPage,
   "/files": FilesPage,
   "/analytics": AnalyticsPage,
@@ -160,44 +158,50 @@ function ChatRouteSink() {
   return null;
 }
 
+// SEPLE dashboard nav — trimmed to the tender workflow. The Hermes agent-admin
+// tabs below are commented out (not needed for tender intelligence); their
+// routes still exist in BUILTIN_ROUTES_CORE so deep-links won't 404, they're
+// just hidden from the sidebar. Uncomment any to restore it.
 const BUILTIN_NAV_REST: NavItem[] = [
-  {
-    path: "/sessions",
-    labelKey: "sessions",
-    label: "Sessions",
-    icon: MessageSquare,
-  },
-  { path: "/files", label: "Files", icon: FolderOpen },
-  {
-    path: "/analytics",
-    labelKey: "analytics",
-    label: "Analytics",
-    icon: BarChart3,
-  },
-  {
-    path: "/models",
-    labelKey: "models",
-    label: "Models",
-    icon: Cpu,
-  },
+  { path: "/tenders", label: "Tenders", icon: FileSearch },
   { path: "/logs", labelKey: "logs", label: "Logs", icon: FileText },
-  { path: "/cron", labelKey: "cron", label: "Cron", icon: Clock },
-  { path: "/skills", labelKey: "skills", label: "Skills", icon: Package },
-  { path: "/plugins", labelKey: "plugins", label: "Plugins", icon: Puzzle },
-  { path: "/mcp", label: "MCP", icon: Plug },
-  { path: "/channels", label: "Channels", icon: Radio },
-  { path: "/webhooks", label: "Webhooks", icon: Webhook },
-  { path: "/pairing", label: "Pairing", icon: ShieldCheck },
-  { path: "/profiles", labelKey: "profiles", label: "Profiles", icon: Users },
   { path: "/config", labelKey: "config", label: "Config", icon: Settings },
   { path: "/env", labelKey: "keys", label: "Keys", icon: KeyRound },
-  { path: "/system", label: "System", icon: Wrench },
-  {
-    path: "/docs",
-    labelKey: "documentation",
-    label: "Documentation",
-    icon: BookOpen,
-  },
+  // ── Hidden for SEPLE (Hermes agent-admin surfaces) ──
+  // {
+  //   path: "/sessions",
+  //   labelKey: "sessions",
+  //   label: "Sessions",
+  //   icon: MessageSquare,
+  // },
+  // { path: "/files", label: "Files", icon: FolderOpen },
+  // {
+  //   path: "/analytics",
+  //   labelKey: "analytics",
+  //   label: "Analytics",
+  //   icon: BarChart3,
+  // },
+  // {
+  //   path: "/models",
+  //   labelKey: "models",
+  //   label: "Models",
+  //   icon: Cpu,
+  // },
+  // { path: "/cron", labelKey: "cron", label: "Cron", icon: Clock },
+  // { path: "/skills", labelKey: "skills", label: "Skills", icon: Package },
+  // { path: "/plugins", labelKey: "plugins", label: "Plugins", icon: Puzzle },
+  // { path: "/mcp", label: "MCP", icon: Plug },
+  // { path: "/channels", label: "Channels", icon: Radio },
+  // { path: "/webhooks", label: "Webhooks", icon: Webhook },
+  // { path: "/pairing", label: "Pairing", icon: ShieldCheck },
+  // { path: "/profiles", labelKey: "profiles", label: "Profiles", icon: Users },
+  // { path: "/system", label: "System", icon: Wrench },
+  // {
+  //   path: "/docs",
+  //   labelKey: "documentation",
+  //   label: "Documentation",
+  //   icon: BookOpen,
+  // },
 ];
 
 const ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {

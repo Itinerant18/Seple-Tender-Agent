@@ -229,5 +229,6 @@ INSERT INTO sources (name, base_url) VALUES
     ('TenderTiger', 'https://www.tendertiger.com'),
     ('Tender247', 'https://www.tender247.com'),
     ('GeM', 'https://gem.gov.in'),
-    ('CPPP', 'https://eprocure.gov.in')
+    ('CPPP', 'https://eprocure.gov.in'),
+    ('WebSearch', 'https://www.google.com')
 ON CONFLICT (name) DO NOTHING;

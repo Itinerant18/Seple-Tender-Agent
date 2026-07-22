@@ -1,7 +1,6 @@
 # SEPLE Tender Intelligence Platform
 # Docker Compose — ties all services together
 
-version: "3.8"
 
 services:
   # ─── PostgreSQL Database ─────────────────────────────────
@@ -59,6 +58,9 @@ services:
         condition: service_healthy
     env_file:
       - .env
+    volumes:
+      # persist TenderTiger browser session across rebuilds — fresh logins trip the WAF
+      - seple_sessions:/root/.seple
 
   # ─── Hermes Agent ────────────────────────────────────────
   hermes:
@@ -66,13 +68,30 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    # Run the gateway daemon (stays up under s6 + runs the cron scheduler).
+    # Bare `hermes` is interactive and exits with no TTY → crash-loop.
+    command: gateway run
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # tender_mcp/server.py reads this to reach the pipeline REST API
       TENDER_API_URL: http://tender-api:8000
+      # Built-in web chat UI (talk to the agent in a browser). Auth gate is
+      # mandatory on non-loopback binds — set the two vars below in .env.
+      HERMES_DASHBOARD: "1"
+      HERMES_DASHBOARD_PORT: "9119"
+      HERMES_DASHBOARD_BASIC_AUTH_USERNAME: ${HERMES_DASHBOARD_BASIC_AUTH_USERNAME}
+      HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: ${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD}
+    ports:
+      - "9119:9119"   # Hermes web chat dashboard
     depends_on:
       - tender-api
     env_file:
       - .env
+    volumes:
+      # persist config.yaml (incl. registered MCP servers), memory, auth
+      - hermes_data:/opt/data
 
 volumes:
   pgdata:
+  seple_sessions:
+  hermes_data:

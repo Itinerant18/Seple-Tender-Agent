@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
-from .db import get_connection
+from .db import get_connection, init_schema  # re-export: scheduler calls repository.init_schema
 from .models import (
     AuditEntry, FitLabel, Milestone, MilestoneType, Notification,
     NotificationType, ScrapeRun, Tender, TenderAnalysis,
@@ -384,6 +384,21 @@ async def mark_reminder_sent(milestone_id: UUID, level: str):
 
 
 # ─── Scrape Runs ───────────────────────────────────────────
+
+_source_id_cache: dict[str, Optional[UUID]] = {}
+
+
+async def get_source_id(name: str) -> Optional[UUID]:
+    """Resolve a source name (TenderTiger/Tender247/CPPP/GeM) to its sources.id.
+    Cached — the sources table is seeded once and effectively static."""
+    if name in _source_id_cache:
+        return _source_id_cache[name]
+    async with get_connection() as conn:
+        row = await conn.fetchrow("SELECT id FROM sources WHERE name = $1", name)
+    sid = row["id"] if row else None
+    _source_id_cache[name] = sid
+    return sid
+
 
 async def start_scrape_run(source_name: str, keywords: list[str] = None) -> UUID:
     """Record the start of a scrape run."""

@@ -10,7 +10,8 @@ from datetime import datetime
 
 from database import repository
 from database.models import Tender, FitLabel, Notification, NotificationType
-from connectors import TenderTigerConnector, Tender247Connector, GeMConnector
+from connectors import TenderTigerConnector, Tender247Connector, GeMConnector, CPPPConnector, WebDiscoveryConnector
+from connectors.scrape_chain import scrape_page
 from processor import FieldExtractor, TenderClassifier, Deduplicator, EligibilityChecker
 from config.keywords import SEARCH_KEYWORDS
 from notifier.slack_alert import SlackAlerter
@@ -61,6 +62,31 @@ class ScannerOrchestrator:
         finally:
             await t247_connector.close()
             
+        # CPPP (Apify actor — no login, also covers state/defence portals)
+        cppp_run = await repository.start_scrape_run("CPPP", self.keywords)
+        cppp_connector = CPPPConnector()
+        try:
+            cppp_tenders = await cppp_connector.scrape_tenders(self.keywords)
+            raw_tenders.extend(cppp_tenders)
+            await repository.complete_scrape_run(cppp_run, tenders_found=len(cppp_tenders))
+        except Exception as e:
+            logger.error(f"CPPP scan failed: {e}")
+            await repository.complete_scrape_run(cppp_run, error=str(e))
+
+        # Open-web discovery (Firecrawl search — dept/PSU/bank/newspaper sites
+        # the aggregators miss, PRD §5). Recall-first; dedup drops overlaps.
+        ws_run = await repository.start_scrape_run("WebSearch", self.keywords)
+        ws_connector = WebDiscoveryConnector()
+        try:
+            ws_tenders = await ws_connector.scrape_tenders(self.keywords)
+            raw_tenders.extend(ws_tenders)
+            await repository.complete_scrape_run(ws_run, tenders_found=len(ws_tenders))
+        except Exception as e:
+            logger.error(f"Web discovery failed: {e}")
+            await repository.complete_scrape_run(ws_run, error=str(e))
+        finally:
+            await ws_connector.close()
+
         logger.info(f"Total raw tenders scraped: {len(raw_tenders)}")
         
         new_tenders_today = []
@@ -76,12 +102,19 @@ class ScannerOrchestrator:
                 logger.debug(f"Skipping duplicate tender: {raw.title}")
                 continue
                 
+            # Web-discovered rows carry only a search snippet — pull the full
+            # page text via the scrape chain (Firecrawl→context.dev→Zyte) so the
+            # classifier and extractor see the real scope, not just the title.
+            doc_text = None
+            if raw.source == "WebDiscovery" or raw.source == "WebSearch":
+                if raw.url:
+                    doc_text = await asyncio.to_thread(lambda: scrape_page(raw.url)["markdown"]) or None
+
             # Extract fields
-            extracted = self.extractor.extract_all(raw.description or raw.title)
-            
-            # Classify via LLM
-            # In a real run, we would download the PDF first. For MVP, we classify based on title/desc
-            analysis = await self.classifier.classify(raw)
+            extracted = self.extractor.extract_all(doc_text or raw.description or raw.title)
+
+            # Classify via LLM (full page text when we fetched it)
+            analysis = await self.classifier.classify(raw, document_text=doc_text)
             
             # Rule-based eligibility check to correct LLM
             if analysis.eligibility_assessment:
@@ -104,6 +137,7 @@ class ScannerOrchestrator:
                 # deadline parsing would happen here
                 issuing_authority=raw.issuing_authority,
                 location=raw.location,
+                source_id=await repository.get_source_id(raw.source),
                 source_url=raw.url,
                 fit_classification=analysis.fit_classification,
                 confidence=analysis.confidence,
@@ -146,11 +180,11 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv()
     
-    # Initialize DB schema first
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(repository.init_schema())
-    
-    orchestrator = ScannerOrchestrator()
-    relevant = loop.run_until_complete(orchestrator.run_daily_scan())
-    if relevant:
-        loop.run_until_complete(orchestrator.email.send_digest(relevant))
+    async def _once():
+        await repository.init_schema()
+        orchestrator = ScannerOrchestrator()
+        relevant = await orchestrator.run_daily_scan()
+        if relevant:
+            await orchestrator.email.send_digest(relevant)
+
+    asyncio.run(_once())

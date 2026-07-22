@@ -46,3 +46,8 @@ Thumbs.db
 # ─── Docker ──────────────────────────────────────────────
 pgdata/
 tests/screenshots/
+
+# ─── Graphify ─────────────────────────────────────────────
+graphify-out/
+knowledge_graph.json
+

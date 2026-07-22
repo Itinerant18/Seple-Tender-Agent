@@ -1,39 +1,43 @@
-# Pins match versions tested locally on 16-07-2026 (venv, Python 3.14).
+# Pins match latest PyPI versions checked 22-07-2026 (venv, Python 3.14).
 # playwright version MUST match the Docker base image tag in Dockerfile.api / Dockerfile.scanner.
 
 # Browser automation
 playwright==1.61.0
 
 # Firecrawl (client code written against 4.x API)
-firecrawl-py==4.32.0
+firecrawl-py==4.32.1
 
 # Apify (client code written against 3.x Run objects)
-apify-client==3.0.6
+apify-client==3.1.0
 
 # Browser-use (AI browser control — ships its own LLM clients, no langchain needed)
-browser-use==0.13.4
+browser-use==0.13.6
 
 # FastAPI + DB
-fastapi==0.111.0
-uvicorn==0.30.0
-asyncpg==0.29.0
-psycopg2-binary==2.9.9
-sqlalchemy==2.0.30
-python-dotenv==1.0.1
+fastapi==0.139.2
+uvicorn==0.51.0
+asyncpg==0.31.0
+psycopg2-binary==2.9.12
+sqlalchemy==2.0.51
+python-dotenv==1.2.2
 
 # HTML parsing (connectors use bs4)
-beautifulsoup4==4.12.3
+beautifulsoup4==4.15.0
 
 # PDF parsing (processor/pdf_parser.py uses pdfplumber)
-pdfplumber==0.11.0
-pymupdf==1.24.5
+pdfplumber==0.11.10
+pymupdf==1.28.0
 
 # HTTP
-aiohttp==3.9.5
-httpx==0.27.0
+aiohttp==3.13.4  # browser-use 0.13.6 hard-pins this exact version
+httpx==0.28.1
 
 # Scheduling
-apscheduler==3.10.4
+apscheduler==3.11.3
 
 # Data
-pydantic==2.7.0
+pydantic==2.12.5  # browser-use 0.13.6 hard-pins this exact version
+
+# Hermes inference router (agent.auxiliary_client.call_llm) needs PyYAML to read
+# config.yaml; openai/anthropic SDKs already ship in the base image.
+pyyaml==6.0.2

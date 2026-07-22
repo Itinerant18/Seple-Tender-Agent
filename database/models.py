@@ -190,7 +190,7 @@ class TenderDocument(BaseModel):
 
 class TenderAnalysis(BaseModel):
     id: Optional[UUID] = None
-    tender_id: UUID
+    tender_id: Optional[UUID] = None  # set by repository after the tender row is inserted
     fit_classification: Optional[FitLabel] = None
     confidence: Optional[ConfidenceLevel] = None
     matched_keywords: list[str] = Field(default_factory=list)
