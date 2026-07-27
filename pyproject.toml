@@ -140,11 +140,6 @@ dependencies = [
   "concurrent-log-handler==0.9.29; sys_platform == 'win32'",
 ]
 
-[project.scripts]
-seple-t-agent = "cli:main"
-seple = "cli:main"
-hermes = "cli:main"
-
 [project.optional-dependencies]
 # Native Anthropic provider — only needed when provider=anthropic (not via
 # OpenRouter or other aggregators).
@@ -297,19 +292,21 @@ all = [
   # [all], `uv sync --locked` on Windows tried to build it from sdist
   # and failed on `make`. Lazy-install routes that build to first use,
   # where the user is expected to have a toolchain available.
-  "hermes-agent[cron]",
-  "hermes-agent[cli]",
-  "hermes-agent[pty]",
-  "hermes-agent[mcp]",
-  "hermes-agent[homeassistant]",
-  "hermes-agent[sms]",
-  "hermes-agent[acp]",
-  "hermes-agent[google]",
-  "hermes-agent[web]",
-  "hermes-agent[youtube]",
+  "seple-t-agent[cron]",
+  "seple-t-agent[cli]",
+  "seple-t-agent[pty]",
+  "seple-t-agent[mcp]",
+  "seple-t-agent[homeassistant]",
+  "seple-t-agent[sms]",
+  "seple-t-agent[acp]",
+  "seple-t-agent[google]",
+  "seple-t-agent[web]",
+  "seple-t-agent[youtube]",
 ]
 
 [project.scripts]
+seple-t-agent = "hermes_cli.main:main"
+seple = "hermes_cli.main:main"
 hermes = "hermes_cli.main:main"
 hermes-agent = "run_agent:main"
 hermes-acp = "acp_adapter.entry:main"
