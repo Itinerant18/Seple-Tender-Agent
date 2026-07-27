@@ -1,8 +1,8 @@
-# SEPLE Tender Intelligence Agent - Hermes Configuration
+# SEPLE Tender Intelligence Agent Configuration
 # Implements PRD 19.2
 
 agent:
-  name: "SEPLE Tender Agent"
+  name: "Seple T Agent"
   version: "1.0.0"
   description: "Autonomous agent for discovering and classifying procurement tenders for Security Engineers Pvt. Ltd."
   

@@ -50,8 +50,8 @@ export const de: Translations = {
   },
 
   app: {
-    brand: "Hermes Agent",
-    brandShort: "HA",
+    brand: "Seple T Agent",
+    brandShort: "STA",
     closeNavigation: "Navigation schließen",
     closeModelTools: "Modell und Werkzeuge schließen",
     footer: {
@@ -287,7 +287,7 @@ export const de: Translations = {
     nameRequired: "Name ist erforderlich",
     nameRule:
       "Nur Kleinbuchstaben, Ziffern, _ und -; muss mit einem Buchstaben oder einer Ziffer beginnen; maximal 64 Zeichen.",
-    invalidName: "Ungültiger Profilname",    cloneFrom: "Konfiguration klonen von",
+    invalidName: "Ungültiger Profilname", cloneFrom: "Konfiguration klonen von",
     cloneFromNone: "Keine (leer)",
     allProfiles: "Profile",
     noProfiles: "Keine Profile gefunden.",

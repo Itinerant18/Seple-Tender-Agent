@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""
+Seple T Agent CLI launcher.
+
+This launcher executes the main entrypoint for Seple T Agent.
+"""
+
+if __name__ == "__main__":
+    from hermes_cli.main import main
+    main()

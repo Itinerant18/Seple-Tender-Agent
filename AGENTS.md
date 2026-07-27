@@ -1,6 +1,6 @@
-# Hermes Agent - Development Guide
+# Seple T Agent - Development Guide
 
-Instructions for AI coding assistants and developers working on the hermes-agent codebase.
+Instructions for AI coding assistants and developers working on the seple-t-agent codebase.
 
 **Never give up on the right solution.**
 

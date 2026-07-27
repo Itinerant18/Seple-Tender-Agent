@@ -1,9 +1,9 @@
 {
-  "name": "hermes",
-  "productName": "Hermes",
+  "name": "seple-t-agent",
+  "productName": "Seple T Agent",
   "private": true,
   "version": "0.17.0",
-  "description": "Native desktop shell for Hermes Agent.",
+  "description": "Native desktop shell for Seple T Agent.",
   "author": "Nous Research",
   "type": "module",
   "main": "dist/electron-main.mjs",

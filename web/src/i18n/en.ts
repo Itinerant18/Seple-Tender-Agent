@@ -53,8 +53,8 @@ export const en: Translations = {
   },
 
   app: {
-    brand: "Hermes Agent",
-    brandShort: "HA",
+    brand: "Seple T Agent",
+    brandShort: "STA",
     closeNavigation: "Close navigation",
     closeModelTools: "Close model and tools",
     footer: {
@@ -122,7 +122,7 @@ export const en: Translations = {
     recentSessions: "Recent Sessions",
     restartGateway: "Restart Gateway",
     restartGatewayConfirmMessage:
-      "This restarts the Hermes gateway process. Connected channels and active sessions will reconnect afterward.",
+      "This restarts the Seple T Agent gateway process. Connected channels and active sessions will reconnect afterward.",
     restartGatewayConfirmTitle: "Restart gateway?",
     restartingGateway: "Restarting gateway…",
     running: "Running",
@@ -131,12 +131,12 @@ export const en: Translations = {
     starting: "Starting",
     startedInBackground: "Started in background — check logs for progress",
     stopped: "Stopped",
-    updateHermes: "Update Hermes",
+    updateHermes: "Update Seple T Agent",
     updateHermesConfirmMessage:
-      "This runs hermes update and restarts the gateway when it finishes. Active sessions keep their prompt cache until then.",
+      "This runs seple-t-agent update and restarts the gateway when it finishes. Active sessions keep their prompt cache until then.",
     updateHermesConfirmNow: "Update now",
-    updateHermesConfirmTitle: "Update Hermes?",
-    updatingHermes: "Updating Hermes…",
+    updateHermesConfirmTitle: "Update Seple T Agent?",
+    updatingHermes: "Updating Seple T Agent…",
     waitingForOutput: "Waiting for output…",
   },
 
@@ -489,7 +489,7 @@ export const en: Translations = {
     showValue: "Show real value",
     hideValue: "Hide value",
     customTitle: "Custom Keys",
-    customHint: "Arbitrary environment variables stored in your .env that Hermes doesn't recognise. Use these to inject env vars for skills, MCP servers, or your own tooling.",
+    customHint: "Arbitrary environment variables stored in your .env that Seple T Agent doesn't recognise. Use these to inject env vars for skills, MCP servers, or your own tooling.",
     customConfigured: "{count} custom key{s} set",
     addCustomKey: "Add a custom key",
     customKeyName: "Variable name",

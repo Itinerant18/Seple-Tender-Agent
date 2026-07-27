@@ -3,7 +3,7 @@ import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
-  title: 'Hermes Agent',
+  title: 'Seple T Agent',
   tagline: 'The self-improving AI agent',
   favicon: 'img/favicon.ico',
 
