@@ -1,6 +1,7 @@
 """
-SEPLE Tender Platform — Manual Trigger for Slack & Email Digest
-Fetches stored tenders, evaluates relevance, sends Slack alerts and emails digest.
+SEPLE Tender Platform — High Priority Alert Dispatcher
+Evaluates all stored tenders using AlertRulesEngine and posts ONLY High Priority Tenders to Slack.
+Sends the daily email digest to RECIPIENT_EMAILS.
 """
 import sys
 import os
@@ -15,6 +16,7 @@ from database import repository
 from database.models import Tender, FitLabel
 from notifier.slack_alert import SlackAlerter
 from notifier.email_digest import EmailDigestSender
+from notifier.alert_rules import AlertRulesEngine
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -24,8 +26,8 @@ async def main():
     await repository.init_schema()
     
     # 1. Fetch raw tender dicts from DB
-    raw_tenders = await repository.list_tenders(limit=100)
-    logger.info(f"Retrieved {len(raw_tenders)} tenders from database.")
+    raw_tenders = await repository.list_tenders(limit=500)
+    logger.info(f"Retrieved {len(raw_tenders)} total tenders from database.")
     
     if not raw_tenders:
         print("No tenders in database. Run a scan first.")
@@ -51,20 +53,29 @@ async def main():
         except Exception as e:
             logger.warning(f"Error parsing tender dict: {e}")
             
-    print(f"\nSending Email Digest for {len(tenders[:15])} relevant tenders...")
+    # Filter for HIGH PRIORITY tenders using AlertRulesEngine
+    high_priority_tenders = []
+    for t in tenders:
+        should_alert, reason = AlertRulesEngine.evaluate(t)
+        if should_alert:
+            high_priority_tenders.append((t, reason))
+            
+    print(f"\nFound {len(high_priority_tenders)} High Priority Tenders out of {len(tenders)} total tenders.")
+    
+    print(f"\n📧 Sending Email Digest for relevant tenders...")
     email_sender = EmailDigestSender()
-    email_success = await email_sender.send_digest(tenders[:15])
+    digest_tenders = [t for t, _ in high_priority_tenders] if high_priority_tenders else tenders[:10]
+    email_success = await email_sender.send_digest(digest_tenders)
     print(f"Email Digest Delivery: {'SUCCESS' if email_success else 'FAILED'}")
     
-    print(f"\nSending Slack Alerts for top 5 relevant tenders...")
+    print(f"\n💬 Posting ONLY High Priority Tenders ({len(high_priority_tenders)}) to Slack...")
     slack_sender = SlackAlerter()
     slack_count = 0
-    for t in tenders[:5]:
-        reason = f"Classification: {t.fit_classification or 'Strong Fit'} | Strategic Opportunity"
+    for t, reason in high_priority_tenders:
         if await slack_sender.send_instant_alert(t, reason):
             slack_count += 1
             
-    print(f"\nSlack Alerts Delivered: {slack_count} alerts sent to Slack")
+    print(f"\nSlack High Priority Alerts Delivered: {slack_count} High Priority alerts posted to Slack successfully!")
 
 if __name__ == "__main__":
     asyncio.run(main())
