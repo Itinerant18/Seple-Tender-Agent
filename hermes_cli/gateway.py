@@ -1767,7 +1767,11 @@ def _profile_arg(hermes_home: str | None = None, default_root: str | Path | None
 
 def _profile_arg_for_target_user(hermes_home: str, target_home_dir: str) -> str:
     """Return the profile arg for a system service running as another user."""
-    target_root = Path(target_home_dir) / ".hermes"
+    # Same dot-name rule as _hermes_home_for_target_user — these two must
+    # agree or the profile arg won't match the remapped home.
+    from hermes_constants import _get_platform_default_seple_home
+
+    target_root = Path(target_home_dir) / _get_platform_default_seple_home().name
     try:
         Path(hermes_home).resolve().relative_to(target_root.resolve())
         return _profile_arg(hermes_home, default_root=target_root)
@@ -2601,13 +2605,22 @@ def _hermes_home_for_target_user(target_home_dir: str) -> str:
 
     When installing a system service via sudo, get_hermes_home() resolves to
     root's home.  This translates it to the target user's equivalent path:
-      /root/.hermes                    → /home/alice/.hermes
-      /root/.hermes/profiles/coder     → /home/alice/.hermes/profiles/coder
+      /root/.seple                     → /home/alice/.seple
+      /root/.seple/profiles/coder      → /home/alice/.seple/profiles/coder
       /opt/custom-hermes               → /opt/custom-hermes  (kept as-is)
+
+    The dot-directory name is taken from the shared resolver rather than
+    hardcoded: it is ``.seple`` normally but stays ``.hermes`` on a
+    pre-rename install. Hardcoding it made the comparison below never
+    match, so the remap silently returned root's own home and the
+    installed service ran against root-owned data.
     """
+    from hermes_constants import _get_platform_default_seple_home
+
+    default_root = _get_platform_default_seple_home()
     current_hermes = get_hermes_home().resolve()
-    current_default = (Path.home() / ".hermes").resolve()
-    target_default = Path(target_home_dir) / ".hermes"
+    current_default = default_root.resolve()
+    target_default = Path(target_home_dir) / default_root.name
 
     # Default ~/.hermes → remap to target user's default
     if current_hermes == current_default:

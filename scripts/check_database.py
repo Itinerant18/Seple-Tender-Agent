@@ -1,6 +1,6 @@
 """
 Test: Is PostgreSQL running and schema created?
-Run: python tests/test_database.py
+Run: python scripts/check_database.py
 """
 import asyncio
 import os

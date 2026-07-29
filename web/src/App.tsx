@@ -21,6 +21,7 @@ import {
 import {
   Activity,
   BarChart3,
+  BookOpen,
   Clock,
   Code,
   Cpu,
@@ -38,14 +39,18 @@ import {
   Package,
   PanelLeftClose,
   PanelLeftOpen,
+  Plug,
   Puzzle,
+  Radio,
   RotateCw,
   Settings,
   Shield,
+  ShieldCheck,
   Sparkles,
   Star,
   Terminal,
   Users,
+  Webhook,
   Wrench,
   X,
   Zap,
@@ -159,50 +164,29 @@ function ChatRouteSink() {
   return null;
 }
 
-// SEPLE dashboard nav — trimmed to the tender workflow. The Hermes agent-admin
-// tabs below are commented out (not needed for tender intelligence); their
-// routes still exist in BUILTIN_ROUTES_CORE so deep-links won't 404, they're
-// just hidden from the sidebar. Uncomment any to restore it.
+// Dashboard nav. Full set is visible to the admin account (seple); the
+// scoped tender account (Tender / role: tender_user) is filtered down to
+// Tenders + Chat by roleCanOpen() where builtinNav is assembled. Every
+// route also has a server-side role gate, so this is presentation only.
 const BUILTIN_NAV_REST: NavItem[] = [
   { path: "/tenders", label: "Tenders", icon: FileSearch },
+  { path: "/sessions", labelKey: "sessions", label: "Sessions", icon: MessageSquare },
+  { path: "/files", label: "Files", icon: FolderOpen },
+  { path: "/analytics", labelKey: "analytics", label: "Analytics", icon: BarChart3 },
+  { path: "/models", labelKey: "models", label: "Models", icon: Cpu },
   { path: "/logs", labelKey: "logs", label: "Logs", icon: FileText },
+  { path: "/cron", labelKey: "cron", label: "Cron", icon: Clock },
+  { path: "/skills", labelKey: "skills", label: "Skills", icon: Package },
+  { path: "/plugins", labelKey: "plugins", label: "Plugins", icon: Puzzle },
+  { path: "/mcp", label: "MCP", icon: Plug },
+  { path: "/channels", label: "Channels", icon: Radio },
+  { path: "/webhooks", label: "Webhooks", icon: Webhook },
+  { path: "/pairing", label: "Pairing", icon: ShieldCheck },
+  { path: "/profiles", labelKey: "profiles", label: "Profiles", icon: Users },
+  { path: "/system", label: "System", icon: Wrench },
   { path: "/config", labelKey: "config", label: "Config", icon: Settings },
   { path: "/env", labelKey: "keys", label: "Keys", icon: KeyRound },
-  // ── Hidden for SEPLE (Hermes agent-admin surfaces) ──
-  // {
-  //   path: "/sessions",
-  //   labelKey: "sessions",
-  //   label: "Sessions",
-  //   icon: MessageSquare,
-  // },
-  // { path: "/files", label: "Files", icon: FolderOpen },
-  // {
-  //   path: "/analytics",
-  //   labelKey: "analytics",
-  //   label: "Analytics",
-  //   icon: BarChart3,
-  // },
-  // {
-  //   path: "/models",
-  //   labelKey: "models",
-  //   label: "Models",
-  //   icon: Cpu,
-  // },
-  // { path: "/cron", labelKey: "cron", label: "Cron", icon: Clock },
-  // { path: "/skills", labelKey: "skills", label: "Skills", icon: Package },
-  // { path: "/plugins", labelKey: "plugins", label: "Plugins", icon: Puzzle },
-  // { path: "/mcp", label: "MCP", icon: Plug },
-  // { path: "/channels", label: "Channels", icon: Radio },
-  // { path: "/webhooks", label: "Webhooks", icon: Webhook },
-  // { path: "/pairing", label: "Pairing", icon: ShieldCheck },
-  // { path: "/profiles", labelKey: "profiles", label: "Profiles", icon: Users },
-  // { path: "/system", label: "System", icon: Wrench },
-  // {
-  //   path: "/docs",
-  //   labelKey: "documentation",
-  //   label: "Documentation",
-  //   icon: BookOpen,
-  // },
+  { path: "/docs", labelKey: "documentation", label: "Documentation", icon: BookOpen },
 ];
 
 const ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {

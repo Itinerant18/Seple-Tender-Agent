@@ -32,10 +32,17 @@ from hermes_cli.config import (
 
 class TestGetHermesHome:
     def test_default_path(self):
+        from hermes_constants import _get_platform_default_seple_home
+
         with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("SEPLE_HOME", None)
             os.environ.pop("HERMES_HOME", None)
             home = get_hermes_home()
-            assert home == Path.home() / ".hermes"
+            # Compared against the shared resolver rather than a literal:
+            # the default is platform-native (~/.seple on POSIX,
+            # %LOCALAPPDATA%\seple on Windows) and falls back to the
+            # pre-rename .hermes directory when only that one exists.
+            assert home == _get_platform_default_seple_home()
 
     def test_env_override(self):
         with patch.dict(os.environ, {"HERMES_HOME": "/custom/path"}):

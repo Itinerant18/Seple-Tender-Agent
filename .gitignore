@@ -23,6 +23,11 @@ node_modules/
 # ─── Hermes local data ───────────────────────────────────
 ~/.hermes/
 .hermes/
+.seple/
+# Installer/desktop bootstrap stamp (hermes_cli/main.py). Must stay ignored
+# so `git stash --include-untracked` during `hermes update` doesn't sweep it
+# away and re-trigger a bootstrap (#38529).
+.hermes-bootstrap-complete
 
 # ─── Database ────────────────────────────────────────────
 *.sqlite

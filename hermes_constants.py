@@ -43,17 +43,37 @@ def get_hermes_home_override() -> str | None:
     return str(override)
 
 
+def _exists(path: Path) -> bool:
+    """``path.exists()`` that is False on any OS error, never raising.
+
+    Path.exists() swallows ENOENT/ENOTDIR/EBADF/ELOOP but *propagates*
+    EACCES. These probes run on the way to resolving the home directory —
+    including for other users' homes (mode 0700) during a sudo service
+    install — so an unreadable path must read as "not there", not crash
+    the CLI.
+    """
+    try:
+        return path.exists()
+    except OSError:
+        return False
+
+
 def _get_platform_default_seple_home() -> Path:
-    """Return the platform-native default Seple T Agent home path."""
+    """Return the platform-native default Seple T Agent home path.
+
+    Prefers the SEPLE directory but falls back to a pre-rename HERMES one
+    when that is the only directory present, so an existing install keeps
+    working without a migration step.
+    """
     if sys.platform == "win32":
         local_appdata = os.environ.get("LOCALAPPDATA", "").strip()
         base = Path(local_appdata) if local_appdata else Path.home() / "AppData" / "Local"
         seple_path = base / "seple"
-        if not seple_path.exists() and (base / "hermes").exists():
+        if not _exists(seple_path) and _exists(base / "hermes"):
             return base / "hermes"
         return seple_path
     seple_path = Path.home() / ".seple"
-    if not seple_path.exists() and (Path.home() / ".hermes").exists():
+    if not _exists(seple_path) and _exists(Path.home() / ".hermes"):
         return Path.home() / ".hermes"
     return seple_path
 
@@ -90,7 +110,7 @@ def get_seple_home() -> Path:
             msg = (
                 f"[SEPLE_HOME fallback] SEPLE_HOME/HERMES_HOME is unset but active "
                 f"profile is {active!r}. Falling back to {fallback_home}, which "
-                f"is the DEFAULT profile — not {active!r}."
+                f"is the DEFAULT profile — not {active!r}. (#18594)"
             )
             try:
                 sys.stderr.write(msg + "\n")

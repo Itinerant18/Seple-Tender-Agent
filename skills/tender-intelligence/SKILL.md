@@ -1,3 +1,14 @@
+---
+name: tender-intelligence
+description: |
+  Find, read, classify, summarize, and recommend Indian government and
+  commercial procurement tenders against Security Engineers Pvt. Ltd.'s
+  capabilities (electronic security, fire detection and suppression,
+  building management, public address, security and facility management).
+  Decision-support only — never registers, submits, pays, or communicates
+  externally. Load this skill when screening or summarizing tenders.
+---
+
 # Tender Intelligence & Discovery — SEPLE Skill
 
 ## Overview

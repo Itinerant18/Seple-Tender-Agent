@@ -1,6 +1,6 @@
 """
 Test: Can Firecrawl extract clean text from a tender page?
-Run: python tests/test_firecrawl.py
+Run: python scripts/check_firecrawl.py
 """
 from dotenv import load_dotenv
 load_dotenv()

@@ -1,6 +1,6 @@
 """
 Test: Can Apify scrape GeM portal for CCTV tenders?
-Run: python tests/test_apify.py
+Run: python scripts/check_apify.py
 """
 from dotenv import load_dotenv
 load_dotenv()

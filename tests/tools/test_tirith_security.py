@@ -1185,12 +1185,17 @@ class TestHermesHomeIsolation:
     def test_get_hermes_home_fallback(self):
         """Without HERMES_HOME set, falls back to the active OS home."""
         from tools.tirith_security import _get_hermes_home
-        with patch.dict(os.environ, {}, clear=True):
-            # Remove HERMES_HOME entirely. With HOME also absent, expanduser
-            # falls back to the account database; compute expected under the
-            # same environment instead of after patch.dict restores HOME.
+        from hermes_constants import _get_platform_default_seple_home
+
+        # Unset only the home-override vars — clearing the whole environment
+        # also drops HOME/USERPROFILE, and Path.home() then raises rather
+        # than falling back, which is not the case under test.
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("SEPLE_HOME", None)
             os.environ.pop("HERMES_HOME", None)
-            expected = os.path.join(os.path.expanduser("~"), ".hermes")
+            # Compared against the shared resolver, not a hardcoded dot-name:
+            # it is .seple normally and .hermes on a pre-rename install.
+            expected = str(_get_platform_default_seple_home())
             result = _get_hermes_home()
         assert result == expected
 

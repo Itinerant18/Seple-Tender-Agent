@@ -1,6 +1,6 @@
 """
 Test: Can Playwright reach Tender Tiger's login page, and what are the real form selectors?
-Run: python tests/test_playwright.py
+Run: python scripts/check_playwright.py
 """
 import asyncio
 import os
