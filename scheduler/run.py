@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 SCAN_HOUR = int(os.getenv("SCAN_HOUR", "6"))
 SCAN_MINUTE = int(os.getenv("SCAN_MINUTE", "0"))
+RUN_ON_STARTUP = os.getenv("RUN_ON_STARTUP", "true").lower() in ("true", "1", "yes")
 WORKING_DAYS = {0, 1, 2, 3, 4, 5}  # Mon–Sat; company holidays roll over manually
 
 
@@ -40,15 +41,18 @@ async def main():
 
     orchestrator = ScannerOrchestrator()
     tracker = MilestoneTracker()
-    # ponytail: in-memory rollover — pending weekend tenders are lost on container
-    # restart (they were still instant-alerted). Persist a digest_sent flag in DB
-    # if that ever bites.
     pending_digest = []
 
+    first_run = RUN_ON_STARTUP
+
     while True:
-        wait = seconds_until_next_run()
-        logger.info("Next scan in %.0f minutes", wait / 60)
-        await asyncio.sleep(wait)
+        if not first_run:
+            wait = seconds_until_next_run()
+            logger.info("Next scan scheduled in %.0f minutes (at %02d:%02d)", wait / 60, SCAN_HOUR, SCAN_MINUTE)
+            await asyncio.sleep(wait)
+        else:
+            logger.info("RUN_ON_STARTUP enabled — executing initial scan immediately...")
+            first_run = False
 
         try:
             pending_digest.extend(await orchestrator.run_daily_scan())
