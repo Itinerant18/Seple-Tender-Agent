@@ -1274,6 +1274,8 @@ export const api = {
  * see Contract Anchor C4 in the plan). The AuthWidget surfaces a
  * truncated ``user_id`` instead.
  */
+export type UserRole = "admin" | "tender_user";
+
 export interface AuthMeResponse {
   user_id: string;
   email: string;
@@ -1281,6 +1283,9 @@ export interface AuthMeResponse {
   org_id: string;
   provider: string;
   expires_at: number;
+  /** Server-assigned role. Absent on older backends → treat as admin.
+   *  Used to hide nav/routes; the server enforces the same rule itself. */
+  role?: UserRole;
 }
 
 export interface ActionResponse {

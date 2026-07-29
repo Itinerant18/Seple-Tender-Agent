@@ -597,6 +597,8 @@ async def api_auth_me(request: Request):
     sess = getattr(request.state, "session", None)
     if sess is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
+    from hermes_cli.dashboard_auth.roles import normalize_role
+
     return {
         "user_id": sess.user_id,
         "email": sess.email,
@@ -604,6 +606,10 @@ async def api_auth_me(request: Request):
         "org_id": sess.org_id,
         "provider": sess.provider,
         "expires_at": sess.expires_at,
+        # Drives nav/route visibility in the SPA. Presentation only — the
+        # middleware is what actually enforces this role (see
+        # hermes_cli.dashboard_auth.roles).
+        "role": normalize_role(getattr(sess, "role", None)),
     }
 
 

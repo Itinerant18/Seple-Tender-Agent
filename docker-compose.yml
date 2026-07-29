@@ -81,6 +81,11 @@ services:
       HERMES_DASHBOARD_PORT: "9119"
       HERMES_DASHBOARD_BASIC_AUTH_USERNAME: ${HERMES_DASHBOARD_BASIC_AUTH_USERNAME}
       HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: ${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD}
+      # Stable session signing key — without it every login dies on restart.
+      HERMES_DASHBOARD_BASIC_AUTH_SECRET: ${HERMES_DASHBOARD_BASIC_AUTH_SECRET:-}
+      # Scoped account (role: tender_user) — Tenders + Chat only.
+      HERMES_DASHBOARD_TENDER_USERNAME: ${HERMES_DASHBOARD_TENDER_USERNAME:-}
+      HERMES_DASHBOARD_TENDER_PASSWORD: ${HERMES_DASHBOARD_TENDER_PASSWORD:-}
     ports:
       - "9119:9119"   # Hermes web chat dashboard
     depends_on:

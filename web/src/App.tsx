@@ -68,6 +68,7 @@ import { ProfileSwitcher } from "@/components/ProfileSwitcher";
 import { ProfileScopeBanner } from "@/components/ProfileScopeBanner";
 import { useSystemActions } from "@/contexts/useSystemActions";
 import type { SystemAction } from "@/contexts/system-actions-context";
+import { useRole, roleCanOpen } from "@/contexts/useRole";
 import TendersPage from "@/pages/TendersPage";
 import ConfigPage from "@/pages/ConfigPage";
 import DocsPage from "@/pages/DocsPage";
@@ -422,6 +423,11 @@ export default function App() {
     [manifests],
   );
 
+  // Server-assigned role. A tender_user sees only the Tenders board and
+  // Chat; the same restriction is enforced in the API gate, so this is
+  // presentation, not the security boundary.
+  const { role } = useRole();
+
   const builtinRoutes = useMemo(
     () => ({
       ...BUILTIN_ROUTES_CORE,
@@ -434,18 +440,25 @@ export default function App() {
     const base = embeddedChat
       ? [CHAT_NAV_ITEM, ...BUILTIN_NAV_REST]
       : BUILTIN_NAV_REST;
-    return showTokenAnalytics
+    const visible = showTokenAnalytics
       ? base
       : base.filter((n) => n.path !== "/analytics");
-  }, [embeddedChat, showTokenAnalytics]);
+    return visible.filter((n) => roleCanOpen(role, n.path));
+  }, [embeddedChat, showTokenAnalytics, role]);
 
   const sidebarNav = useMemo(
     () => partitionSidebarNav(builtinNav, manifests),
     [builtinNav, manifests],
   );
+  // Dropping the routes a role can't open (rather than rendering a guard
+  // per route) means a denied deep-link falls through to the existing
+  // unknown-route fallback, which redirects to /tenders.
   const routes = useMemo(
-    () => buildRoutes(builtinRoutes, manifests),
-    [builtinRoutes, manifests],
+    () =>
+      buildRoutes(builtinRoutes, manifests).filter(
+        ({ path }) => path === "/" || path === "*" || roleCanOpen(role, path),
+      ),
+    [builtinRoutes, manifests, role],
   );
   const pluginTabMeta = useMemo(
     () =>

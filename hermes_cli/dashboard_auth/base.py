@@ -10,9 +10,10 @@ from typing import Optional
 class Session:
     """A verified identity. Returned by ``complete_login`` and ``verify_session``.
 
-    All fields are mandatory. Providers that don't have a concept of orgs
-    should set ``org_id`` to an empty string. ``access_token`` and
-    ``refresh_token`` are opaque to Hermes — provider-specific.
+    All fields are mandatory except ``role``. Providers that don't have a
+    concept of orgs should set ``org_id`` to an empty string.
+    ``access_token`` and ``refresh_token`` are opaque to Hermes —
+    provider-specific.
     """
 
     user_id: str
@@ -23,6 +24,11 @@ class Session:
     expires_at: int  # unix seconds; the access_token's exp claim
     access_token: str
     refresh_token: str
+    # Dashboard authorization role (see hermes_cli.dashboard_auth.roles).
+    # Optional so providers that predate roles — and every provider that
+    # doesn't model them, e.g. the Nous OAuth one — keep working unchanged
+    # and get the historical unrestricted behaviour.
+    role: str = "admin"
 
 
 @dataclass(frozen=True)

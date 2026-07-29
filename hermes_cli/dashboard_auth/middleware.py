@@ -61,6 +61,33 @@ _GATE_PUBLIC_PREFIXES: tuple[str, ...] = (
 )
 
 
+def _role_forbidden(request: Request, session) -> Response | None:
+    """403 if the verified session's role may not touch this route.
+
+    The authoritative RBAC check. Runs after the session cookie is verified
+    and before the request reaches a handler, so hiding a nav item in the
+    SPA is presentation only — this is what actually stops a scoped user
+    from curl-ing an admin endpoint.
+    """
+    from hermes_cli.dashboard_auth.roles import normalize_role, role_allows
+
+    role = normalize_role(getattr(session, "role", None))
+    path = request.url.path
+    if role_allows(role, path, request.method):
+        return None
+    _log.warning(
+        "dashboard-auth: role %s denied %s %s (user=%s)",
+        role,
+        request.method,
+        path,
+        getattr(session, "user_id", "?"),
+    )
+    return JSONResponse(
+        {"detail": "Forbidden: your account does not have access to this resource"},
+        status_code=403,
+    )
+
+
 def _path_is_public(path: str) -> bool:
     """True if ``path`` bypasses the OAuth auth gate.
 
@@ -395,6 +422,9 @@ async def gated_auth_middleware(
         if refreshed is not None:
             new_session, refreshing_provider = refreshed
             request.state.session = new_session
+            forbidden = _role_forbidden(request, new_session)
+            if forbidden is not None:
+                return forbidden
             response = await call_next(request)
             # Persist the ROTATED tokens. Portal rotates the refresh token on
             # every refresh and runs reuse-detection, so writing the new RT
@@ -442,6 +472,9 @@ async def gated_auth_middleware(
         return response
 
     request.state.session = session
+    forbidden = _role_forbidden(request, session)
+    if forbidden is not None:
+        return forbidden
     response = await call_next(request)
     if not provider_hint and session.provider:
         from hermes_cli.dashboard_auth.cookies import detect_https

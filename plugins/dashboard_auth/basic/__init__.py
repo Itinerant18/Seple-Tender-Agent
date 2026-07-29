@@ -74,6 +74,11 @@ from hermes_cli.dashboard_auth import (
     RefreshExpiredError,
     Session,
 )
+from hermes_cli.dashboard_auth.roles import (
+    ROLE_ADMIN,
+    ROLE_TENDER_USER,
+    normalize_role,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +217,7 @@ class BasicAuthProvider(DashboardAuthProvider):
         password_hash: str,
         secret: bytes,
         ttl_seconds: int = _DEFAULT_TTL_SECONDS,
+        extra_accounts: tuple[tuple[str, str, str], ...] = (),
     ) -> None:
         if not username:
             raise ValueError("username must be non-empty")
@@ -223,6 +229,24 @@ class BasicAuthProvider(DashboardAuthProvider):
         self._password_hash = password_hash
         self._secret = secret
         self._ttl = max(60, int(ttl_seconds))
+        # username -> (password_hash, role). The constructor's username /
+        # password_hash pair is always the admin; ``extra_accounts`` carries
+        # additional (username, password_hash, role) triples. Kept as a list
+        # of pairs rather than a dict lookup so credential matching can scan
+        # every entry in constant time (see complete_password_login).
+        accounts: list[tuple[str, str, str]] = [
+            (username, password_hash, ROLE_ADMIN)
+        ]
+        for extra_username, extra_hash, extra_role in extra_accounts:
+            if not extra_username or not extra_hash:
+                raise ValueError("extra account needs a username and a hash")
+            if extra_username == username:
+                raise ValueError(
+                    f"duplicate dashboard username {extra_username!r}: the "
+                    "admin and scoped accounts must differ"
+                )
+            accounts.append((extra_username, extra_hash, extra_role))
+        self._accounts = tuple(accounts)
 
     # ---- OAuth methods: not used (pure-password provider) ------------------
 
@@ -244,19 +268,27 @@ class BasicAuthProvider(DashboardAuthProvider):
     def complete_password_login(
         self, *, username: str, password: str
     ) -> Session:
-        # Constant-time-ish: always run a scrypt verify (against the real
-        # hash if the username matches, else a dummy hash) so an unknown
+        # Constant-time-ish: always run exactly ONE scrypt verify (against
+        # the matched account's hash, else a dummy hash) so an unknown
         # username and a wrong password take comparable time. Compare the
         # username with compare_digest too, to avoid a length/byte timing
         # leak on the username itself.
-        username_ok = hmac.compare_digest(
-            username.encode("utf-8"), self._username.encode("utf-8")
-        )
-        target_hash = self._password_hash if username_ok else _DUMMY_HASH
+        #
+        # The scan deliberately does not break early: returning as soon as
+        # an account matches would make "first account" measurably faster
+        # than "last account", reintroducing username enumeration through
+        # the side door.
+        matched: Optional[tuple[str, str, str]] = None
+        for account in self._accounts:
+            if hmac.compare_digest(
+                username.encode("utf-8"), account[0].encode("utf-8")
+            ):
+                matched = account
+        target_hash = matched[1] if matched is not None else _DUMMY_HASH
         password_ok = _verify_password(password, target_hash)
-        if not (username_ok and password_ok):
+        if matched is None or not password_ok:
             raise InvalidCredentialsError("invalid username or password")
-        return self._mint_session(self._username)
+        return self._mint_session(matched[0], matched[2])
 
     # ---- session lifecycle -------------------------------------------------
 
@@ -280,7 +312,16 @@ class BasicAuthProvider(DashboardAuthProvider):
             or payload.get("exp", 0) <= int(time.time())
         ):
             raise RefreshExpiredError("refresh token expired or invalid")
-        return self._mint_session(str(payload.get("sub", self._username)))
+        # Re-mint with the role from the signed refresh token (falling back
+        # to the account's current role), so a refresh can neither drop a
+        # role nor silently promote one.
+        sub = str(payload.get("sub", self._username))
+        role = (
+            normalize_role(payload.get("role"))
+            if payload.get("role")
+            else self._role_for(sub)
+        )
+        return self._mint_session(sub, role)
 
     def revoke_session(self, *, refresh_token: str) -> None:
         # Stateless tokens — nothing to revoke server-side. The session
@@ -290,14 +331,34 @@ class BasicAuthProvider(DashboardAuthProvider):
 
     # ---- internals ---------------------------------------------------------
 
-    def _mint_session(self, user_id: str) -> Session:
+    def _role_for(self, user_id: str) -> str:
+        """Role currently configured for ``user_id``; admin if unknown.
+
+        Used as the fallback when a signed token carries no ``role`` claim,
+        which happens for sessions minted before roles existed — back when
+        the only account was the admin.
+        """
+        for account_username, _hash, account_role in self._accounts:
+            if account_username == user_id:
+                return account_role
+        return ROLE_ADMIN
+
+    def _mint_session(self, user_id: str, role: str = ROLE_ADMIN) -> Session:
         now = int(time.time())
         exp = now + self._ttl
+        # ``role`` is inside the signed payload, so it cannot be edited by
+        # the holder without invalidating the HMAC.
         access_token = _sign(
-            {"sub": user_id, "kind": "access", "exp": exp}, self._secret
+            {"sub": user_id, "role": role, "kind": "access", "exp": exp},
+            self._secret,
         )
         refresh_token = _sign(
-            {"sub": user_id, "kind": "refresh", "exp": now + _REFRESH_TTL_SECONDS},
+            {
+                "sub": user_id,
+                "role": role,
+                "kind": "refresh",
+                "exp": now + _REFRESH_TTL_SECONDS,
+            },
             self._secret,
         )
         return Session(
@@ -309,12 +370,14 @@ class BasicAuthProvider(DashboardAuthProvider):
             expires_at=exp,
             access_token=access_token,
             refresh_token=refresh_token,
+            role=role,
         )
 
     def _session_from_payload(
         self, access_token: str, refresh_token: str, payload: dict
     ) -> Session:
         user_id = str(payload.get("sub", ""))
+        role = normalize_role(payload.get("role")) if payload.get("role") else self._role_for(user_id)
         return Session(
             user_id=user_id,
             email="",
@@ -324,6 +387,7 @@ class BasicAuthProvider(DashboardAuthProvider):
             expires_at=int(payload["exp"]),
             access_token=access_token,
             refresh_token=refresh_token,
+            role=role,
         )
 
 
@@ -389,6 +453,62 @@ def _resolve_secret(cfg_section: dict) -> bytes:
         except (ValueError, TypeError):
             pass
     return raw.encode("utf-8")
+
+
+def _resolve_tender_account(
+    section: dict,
+) -> tuple[tuple[str, str, str], ...]:
+    """Resolve the optional scoped ``tender_user`` account.
+
+    Same env-wins-over-config precedence and same hash-preferred-over-
+    plaintext rule as the admin account:
+
+        HERMES_DASHBOARD_TENDER_USERNAME
+        HERMES_DASHBOARD_TENDER_PASSWORD_HASH   # preferred
+        HERMES_DASHBOARD_TENDER_PASSWORD        # plaintext fallback
+
+    or under ``dashboard.basic_auth.tender_user`` in config.yaml. Returns
+    an empty tuple when unconfigured, which leaves the dashboard exactly
+    as it was: one admin account, no roles in play.
+    """
+    sub_section = section.get("tender_user")
+    sub_section = sub_section if isinstance(sub_section, dict) else {}
+
+    tender_username = _resolve(
+        "HERMES_DASHBOARD_TENDER_USERNAME", sub_section, "username"
+    )
+    if not tender_username:
+        return ()
+
+    tender_hash = _resolve(
+        "HERMES_DASHBOARD_TENDER_PASSWORD_HASH", sub_section, "password_hash"
+    )
+    tender_plaintext = _resolve(
+        "HERMES_DASHBOARD_TENDER_PASSWORD", sub_section, "password"
+    )
+    if not tender_hash and not tender_plaintext:
+        logger.warning(
+            "dashboard-auth-basic: HERMES_DASHBOARD_TENDER_USERNAME is set "
+            "but no tender password/password_hash is configured — the "
+            "tender_user account is being skipped."
+        )
+        return ()
+
+    plaintext_from_env = os.environ.get(
+        "HERMES_DASHBOARD_TENDER_PASSWORD", ""
+    ).strip()
+    if plaintext_from_env:
+        tender_hash = hash_password(plaintext_from_env)
+    elif not tender_hash:
+        tender_hash = hash_password(tender_plaintext)
+
+    logger.info(
+        "dashboard-auth-basic: registered scoped account (username=%s, "
+        "role=%s)",
+        tender_username,
+        ROLE_TENDER_USER,
+    )
+    return ((tender_username, tender_hash, ROLE_TENDER_USER),)
 
 
 def register(ctx) -> None:
@@ -472,12 +592,15 @@ def register(ctx) -> None:
     except ValueError:
         ttl = _DEFAULT_TTL_SECONDS
 
+    extra_accounts = _resolve_tender_account(section)
+
     try:
         provider = BasicAuthProvider(
             username=username,
             password_hash=password_hash,
             secret=secret,
             ttl_seconds=ttl,
+            extra_accounts=extra_accounts,
         )
     except ValueError as exc:
         LAST_SKIP_REASON = f"BasicAuthProvider construction failed: {exc}"
