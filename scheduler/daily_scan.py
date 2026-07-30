@@ -155,6 +155,12 @@ class ScannerOrchestrator:
             
             analysis.tender_id = tender_id
             await repository.save_analysis(analysis)
+
+            if tender.fit_classification in (
+                FitLabel.STRONG_FIT,
+                FitLabel.POTENTIAL_FIT,
+            ):
+                await repository.queue_digest_tender(tender_id)
             
             new_tenders_today.append(tender)
             
@@ -166,8 +172,9 @@ class ScannerOrchestrator:
                     tender.instant_alert_sent = True
                     # In a real app we'd update the DB here
                     
-        # 4. Collect digest-worthy tenders — digest send is the caller's job
-        # (scheduler/run.py rolls weekend finds into the next working-day digest, PRD §8.1)
+        # 4. Return digest-worthy tenders for callers that need the current
+        # batch. Delivery uses the durable notifications queue above so a
+        # service restart or one-shot cron invocation cannot lose weekend finds.
         relevant = [t for t in new_tenders_today if t.fit_classification in (FitLabel.STRONG_FIT, FitLabel.POTENTIAL_FIT)]
 
         logger.info("Daily Tender Scan Pipeline Complete (%d relevant)", len(relevant))

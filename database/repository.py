@@ -467,6 +467,61 @@ async def log_notification(notification: Notification) -> UUID:
         return notif_id
 
 
+async def queue_digest_tender(tender_id: UUID) -> Optional[UUID]:
+    """Queue a tender for the next working-day digest exactly once."""
+    async with get_connection() as conn:
+        return await conn.fetchval(
+            """
+            INSERT INTO notifications (
+                tender_id, channel, notification_type, status
+            )
+            SELECT $1, 'email', $2, 'pending'
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM notifications
+                WHERE tender_id = $1
+                  AND notification_type = $2
+            )
+            RETURNING id
+            """,
+            tender_id,
+            NotificationType.DAILY_DIGEST.value,
+        )
+
+
+async def list_pending_digest_tenders() -> list[dict]:
+    """Return queued digest notifications joined to their tender payloads."""
+    async with get_connection() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT n.id AS digest_notification_id, t.*
+            FROM notifications n
+            JOIN tenders t ON t.id = n.tender_id
+            WHERE n.notification_type = $1
+              AND n.status = 'pending'
+            ORDER BY n.created_at ASC, n.id ASC
+            """,
+            NotificationType.DAILY_DIGEST.value,
+        )
+        return [dict(row) for row in rows]
+
+
+async def mark_digest_notifications_sent(notification_ids: list[UUID]) -> None:
+    """Mark a successfully delivered digest batch as sent."""
+    if not notification_ids:
+        return
+
+    async with get_connection() as conn:
+        await conn.execute(
+            """
+            UPDATE notifications
+            SET status = 'sent', sent_at = NOW(), error_message = NULL
+            WHERE id = ANY($1::uuid[])
+            """,
+            notification_ids,
+        )
+
+
 # ─── Statistics ────────────────────────────────────────────
 
 async def get_stats() -> dict:

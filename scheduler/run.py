@@ -2,9 +2,9 @@
 SEPLE Tender Scheduler — long-running entrypoint for the scanner container.
 
 Scans every day at SCAN_HOUR (7 days/week, PRD §8.4).
-Digest goes out on working days only (Mon–Sat); weekend/holiday finds
-roll into the next working-day digest (PRD §8.1). Instant alerts fire
-inside run_daily_scan regardless of day.
+Digest goes out on working days only (Mon–Sat); weekend/holiday finds are
+persisted in Postgres and roll into the next working-day digest (PRD §8.1).
+Instant alerts fire inside run_daily_scan regardless of day.
 Milestone reminders (F8) run right after each scan.
 """
 import os
@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 from database import repository
+from database.models import Tender
 from scheduler.daily_scan import ScannerOrchestrator
 from scheduler.milestone_tracker import MilestoneTracker
 
@@ -35,13 +36,54 @@ def seconds_until_next_run() -> float:
     return (nxt - now).total_seconds()
 
 
+async def run_cycle(*, now: datetime | None = None) -> dict:
+    """Run one scan/digest/milestone cycle for workers and cron jobs."""
+    orchestrator = ScannerOrchestrator()
+    tracker = MilestoneTracker()
+    current_time = now or datetime.now()
+    scan_succeeded = False
+    digest_count = 0
+
+    try:
+        await orchestrator.run_daily_scan()
+        scan_succeeded = True
+    except Exception:
+        logger.exception("Daily scan failed")
+
+    if current_time.weekday() in WORKING_DAYS:
+        try:
+            queued_rows = await repository.list_pending_digest_tenders()
+            notification_ids = [
+                row["digest_notification_id"] for row in queued_rows
+            ]
+            tenders = [
+                Tender.model_validate({
+                    key: value
+                    for key, value in row.items()
+                    if key != "digest_notification_id"
+                })
+                for row in queued_rows
+            ]
+            if tenders and await orchestrator.email.send_digest(tenders):
+                await repository.mark_digest_notifications_sent(notification_ids)
+                digest_count = len(tenders)
+        except Exception:
+            logger.exception("Digest send failed; queued tenders remain pending")
+
+    try:
+        await tracker.run_checks()
+    except Exception:
+        logger.exception("Milestone tracker failed")
+
+    return {
+        "scan_succeeded": scan_succeeded,
+        "digest_count": digest_count,
+    }
+
+
 async def main():
     load_dotenv()
     await repository.init_schema()
-
-    orchestrator = ScannerOrchestrator()
-    tracker = MilestoneTracker()
-    pending_digest = []
 
     first_run = RUN_ON_STARTUP
 
@@ -54,22 +96,7 @@ async def main():
             logger.info("RUN_ON_STARTUP enabled — executing initial scan immediately...")
             first_run = False
 
-        try:
-            pending_digest.extend(await orchestrator.run_daily_scan())
-        except Exception:
-            logger.exception("Daily scan failed")
-
-        if pending_digest and datetime.now().weekday() in WORKING_DAYS:
-            try:
-                if await orchestrator.email.send_digest(pending_digest):
-                    pending_digest = []
-            except Exception:
-                logger.exception("Digest send failed; will retry next run")
-
-        try:
-            await tracker.run_checks()
-        except Exception:
-            logger.exception("Milestone tracker failed")
+        await run_cycle()
 
 
 if __name__ == "__main__":

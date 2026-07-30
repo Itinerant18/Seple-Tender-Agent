@@ -4,15 +4,23 @@ databases:
   - name: tenders-db
     databaseName: tenders
     user: postgres
-    plan: starter
+    plan: free
+    region: singapore
 
 services:
   - type: web
     name: tender-api
-    env: docker
-    dockerfilePath: Dockerfile.api
-    plan: starter
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: bash scripts/render/build-tender.sh
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.5"
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: /opt/render/project/.playwright
       - key: DATABASE_URL
         fromDatabase:
           name: tenders-db
@@ -20,20 +28,37 @@ services:
       - key: OPENAI_API_KEY
         sync: false
 
-  - type: worker
+  - type: cron
     name: tender-scanner
-    env: docker
-    dockerfilePath: Dockerfile.scanner
-    plan: starter
-    disk:
-      name: seple_sessions
-      mountPath: /root/.seple
-      sizeGB: 1
+    runtime: python
+    plan: free
+    region: singapore
+    schedule: "30 0 * * *"
+    buildCommand: bash scripts/render/build-tender.sh
+    startCommand: python -m scheduler.run_once
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.5"
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: /opt/render/project/.playwright
       - key: DATABASE_URL
         fromDatabase:
           name: tenders-db
           property: connectionString
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: FIRECRAWL_API_KEY
+        sync: false
+      - key: APIFY_API_TOKEN
+        sync: false
+      - key: CONTEXT_DEV_API_KEY
+        sync: false
+      - key: ZYTE_API_KEY
+        sync: false
       - key: TENDER_TIGER_EMAIL
         sync: false
       - key: TENDER_TIGER_PASSWORD
@@ -42,22 +67,29 @@ services:
         sync: false
       - key: TENDER247_PASSWORD
         sync: false
-      - key: SCAN_HOUR
-        value: "6"
-      - key: SCAN_MINUTE
-        value: "0"
+      - key: SLACK_WEBHOOK_URL
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SENDER_EMAIL
+        sync: false
+      - key: RECIPIENT_EMAILS
+        sync: false
 
   - type: web
     name: hermes-agent
-    env: docker
-    dockerfilePath: Dockerfile
-    dockerCommand: gateway run
-    plan: starter
-    disk:
-      name: hermes_data
-      mountPath: /opt/data
-      sizeGB: 1
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: bash scripts/render/build-hermes.sh
+    startCommand: python -m hermes_cli.main dashboard --host 0.0.0.0 --port $PORT --no-open --skip-build
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.5"
+      - key: HERMES_HOME
+        value: /opt/render/project/.hermes
       - key: OPENAI_API_KEY
         sync: false
       - key: TENDER_API_URL
@@ -65,10 +97,11 @@ services:
           type: web
           name: tender-api
           envVarKey: RENDER_EXTERNAL_URL
-      - key: HERMES_DASHBOARD
-        value: "1"
-      - key: HERMES_DASHBOARD_PORT
-        value: "9119"
+      - key: VITE_TENDER_API_URL
+        fromService:
+          type: web
+          name: tender-api
+          envVarKey: RENDER_EXTERNAL_URL
       - key: HERMES_DASHBOARD_BASIC_AUTH_USERNAME
         sync: false
       - key: HERMES_DASHBOARD_BASIC_AUTH_PASSWORD
