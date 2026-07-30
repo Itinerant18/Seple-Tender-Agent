@@ -2,8 +2,6 @@ version: "1"
 
 databases:
   - name: tenders-db
-    databaseName: tenders
-    user: postgres
     plan: free
     region: singapore
 
@@ -31,7 +29,7 @@ services:
   - type: cron
     name: tender-scanner
     runtime: python
-    plan: free
+    plan: starter
     region: singapore
     schedule: "30 0 * * *"
     buildCommand: bash scripts/render/build-tender.sh
