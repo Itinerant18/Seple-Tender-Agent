@@ -83,7 +83,7 @@ export default function TendersPage() {
       const tData = await tRes.json();
       setTenders(tData.data || []);
       if (sRes.ok) setStats(await sRes.json());
-    } catch (e) {
+    } catch {
       setError(
         `Could not reach the tender API at ${TENDER_API}. Is the tender-api service running?`,
       );

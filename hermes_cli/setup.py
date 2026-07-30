@@ -3031,8 +3031,10 @@ def _blank_slate_minimal_toolsets(config: dict):
         # Plain (non-composite) TOOLSETS entries — catches recovered toolsets
         # like ``kanban`` that aren't in CONFIGURABLE_TOOLSETS but get re-added.
         for k, tdef in TOOLSETS.items():
-            if k.startswith("hermes-"):
-                continue  # platform composites — not user-facing toolsets
+            if k.startswith("hermes-") or k.startswith("seple-"):
+                continue  # platform composites / dashboard RBAC role toolsets —
+                # not CLI user-facing toolsets, and seple-admin shares read_file
+                # with the kept `file` toolset (would strip it from blank slate).
             if isinstance(tdef, dict) and tdef.get("includes"):
                 continue  # composite groupings, not leaf toolsets
             if isinstance(tdef, dict) and tdef.get("posture"):
