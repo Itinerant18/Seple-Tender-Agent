@@ -1,0 +1,81 @@
+version: "1"
+
+databases:
+  - name: tenders-db
+    databaseName: tenders
+    user: postgres
+    plan: starter
+
+services:
+  - type: web
+    name: tender-api
+    env: docker
+    dockerfilePath: Dockerfile.api
+    plan: starter
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tenders-db
+          property: connectionString
+      - key: OPENAI_API_KEY
+        sync: false
+
+  - type: worker
+    name: tender-scanner
+    env: docker
+    dockerfilePath: Dockerfile.scanner
+    plan: starter
+    disk:
+      name: seple_sessions
+      mountPath: /root/.seple
+      sizeGB: 1
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tenders-db
+          property: connectionString
+      - key: TENDER_TIGER_EMAIL
+        sync: false
+      - key: TENDER_TIGER_PASSWORD
+        sync: false
+      - key: TENDER247_EMAIL
+        sync: false
+      - key: TENDER247_PASSWORD
+        sync: false
+      - key: SCAN_HOUR
+        value: "6"
+      - key: SCAN_MINUTE
+        value: "0"
+
+  - type: web
+    name: hermes-agent
+    env: docker
+    dockerfilePath: Dockerfile
+    dockerCommand: gateway run
+    plan: starter
+    disk:
+      name: hermes_data
+      mountPath: /opt/data
+      sizeGB: 1
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: TENDER_API_URL
+        fromService:
+          type: web
+          name: tender-api
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: HERMES_DASHBOARD
+        value: "1"
+      - key: HERMES_DASHBOARD_PORT
+        value: "9119"
+      - key: HERMES_DASHBOARD_BASIC_AUTH_USERNAME
+        sync: false
+      - key: HERMES_DASHBOARD_BASIC_AUTH_PASSWORD
+        sync: false
+      - key: HERMES_DASHBOARD_BASIC_AUTH_SECRET
+        generateValue: true
+      - key: HERMES_DASHBOARD_TENDER_USERNAME
+        sync: false
+      - key: HERMES_DASHBOARD_TENDER_PASSWORD
+        sync: false

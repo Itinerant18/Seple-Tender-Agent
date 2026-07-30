@@ -3,6 +3,7 @@
 </p>
 
 # Seple T Agent ☤
+
 <p align="center">
   <a href="https://hermes-agent.nousresearch.com/">Hermes Agent</a> | <a href="https://hermes-agent.nousresearch.com/">Hermes Desktop</a>
 </p>
@@ -94,6 +95,7 @@ Expand-Archive $zip "$env:TEMP\uv_x" -Force
 If attestation says "Verification succeeded" and the last line prints `True`, you're good.
 
 **To whitelist Hermes:**
+
 - **Windows Defender:** Run PowerShell as Admin → `Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\hermes\bin"`
 - **Bitdefender:** Add an exception in the Bitdefender console (Protection > Antivirus > Settings > Manage Exceptions)
 - Whitelist the **folder**, not the file hash — Hermes updates `uv` and the hash changes every version
