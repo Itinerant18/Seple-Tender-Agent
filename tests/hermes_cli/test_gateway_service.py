@@ -2677,8 +2677,8 @@ class TestSystemUnitPathRemapping:
         # always exists) — NOT the source checkout under it. Pinning cwd to the
         # checkout is the rot bug fixed alongside this: a relocated/removed
         # checkout would crash-loop the unit on CHDIR (status=200).
-        assert "WorkingDirectory=/home/alice/.seple" in unit
-        assert "WorkingDirectory=/home/alice/.seple/hermes-agent" not in unit
+        assert "WorkingDirectory=/home/alice/.hermes" in unit
+        assert "WorkingDirectory=/home/alice/.hermes/hermes-agent" not in unit
 
 
 class TestDockerAwareGateway:
