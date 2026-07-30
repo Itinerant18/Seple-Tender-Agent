@@ -578,6 +578,27 @@ TOOLSETS = {
         "description": "Gateway toolset - union of all messaging platform tools",
         "tools": [],
         "includes": ["hermes-telegram", "hermes-discord", "hermes-whatsapp", "hermes-slack", "hermes-signal", "hermes-bluebubbles", "hermes-homeassistant", "hermes-email", "hermes-sms", "hermes-mattermost", "hermes-matrix", "hermes-dingtalk", "hermes-feishu", "hermes-wecom", "hermes-wecom-callback", "hermes-weixin", "hermes-qqbot", "hermes-webhook", "hermes-yuanbao"]
+    },
+
+    "seple-admin": {
+        "description": "Seple Admin — full tender agent with controlled tool access via web dashboard",
+        "tools": [
+            "web_search", "web_extract",
+            "read_file",
+            "vision_analyze",
+            "skills_list", "skill_view", "skill_manage",
+            "browser_navigate", "browser_snapshot",
+            "todo", "memory",
+            "session_search", "clarify",
+            "delegate_task",
+        ],
+        "includes": []
+    },
+
+    "seple-tender-user": {
+        "description": "Seple Tender User — no agent, only tender dashboard tools",
+        "tools": [],
+        "includes": []
     }
 }
 
