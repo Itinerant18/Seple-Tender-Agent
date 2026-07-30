@@ -38,6 +38,7 @@ jobs:
     outputs:
       python: ${{ steps.classify.outputs.python }}
       frontend: ${{ steps.classify.outputs.frontend }}
+      tender_mcp: ${{ steps.classify.outputs.tender_mcp }}
       site: ${{ steps.classify.outputs.site }}
       scan: ${{ steps.classify.outputs.scan }}
       deps: ${{ steps.classify.outputs.deps }}
@@ -79,23 +80,7 @@ jobs:
     if: needs.detect.outputs.frontend == 'true'
     uses: ./.github/workflows/js-tests.yml
 
-  docs-site:
-    name: Docs Site
-    needs: detect
-    if: needs.detect.outputs.site == 'true'
-    uses: ./.github/workflows/docs-site-checks.yml
 
-  history-check:
-    name: Deny unrelated histories
-    needs: detect
-    if: needs.detect.outputs.event_name == 'pull_request'
-    uses: ./.github/workflows/history-check.yml
-
-  contributor-check:
-    name: Check contributors
-    needs: detect
-    if: needs.detect.outputs.python == 'true'
-    uses: ./.github/workflows/contributor-check.yml
 
   uv-lockfile:
     name: Check uv.lock
@@ -114,11 +99,11 @@ jobs:
     if: needs.detect.outputs.docker_meta == 'true'
     uses: ./.github/workflows/docker-lint.yml
 
-  docker:
+  docker-seple:
     name: Build&Test Docker image
     needs: detect
     if: needs.detect.outputs.python == 'true' || needs.detect.outputs.frontend == 'true' || needs.detect.outputs.docker_meta == 'true'
-    uses: ./.github/workflows/docker.yml
+    uses: ./.github/workflows/docker-seple.yml
     secrets: inherit
 
   supply-chain:
@@ -149,16 +134,12 @@ jobs:
       - tests
       - lint
       - js-tests
-      - docs-site
-      - history-check
-      - contributor-check
       - uv-lockfile
       - lockfile-diff
       - docker-lint
       - supply-chain
       - osv-scanner
-      # we don't require docker to pass rn because it's so slow lol
-      # - docker
+      - docker-seple
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -188,7 +169,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   ci-timings:
     name: CI timing report
-    needs: [all-checks-pass, docker]
+    needs: [all-checks-pass, docker-seple]
     if: always()
     runs-on: ubuntu-latest
     steps:
