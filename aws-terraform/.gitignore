@@ -1,0 +1,6 @@
+# Terraform local state (contains secrets) and provider binaries — never commit
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform.lock.hcl
