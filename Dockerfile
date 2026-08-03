@@ -188,6 +188,8 @@ RUN uv sync --frozen --no-install-project --extra all --extra messaging --extra 
 COPY web/ web/
 COPY ui-tui/ ui-tui/
 COPY apps/shared/ apps/shared/
+ARG VITE_TENDER_API_URL
+ENV VITE_TENDER_API_URL=$VITE_TENDER_API_URL
 RUN cd web && npm run build && \
     cd ../ui-tui && npm run build
 
