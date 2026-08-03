@@ -131,9 +131,9 @@ Single-task delegation runs directly without thread pool overhead.
 
 ### Durable background completions
 
-When a background delegation finishes, Hermes stores its completion event in
+When a background delegation finishes, Seple T Agent stores its completion event in
 the active profile's `state.db` before publishing it to the normal fresh-turn
-queue. If Hermes restarts after completion but before delivery, the pending
+queue. If Seple T Agent restarts after completion but before delivery, the pending
 event is restored and routed through the same ownership checks. Competing
 consumers use a durable claim, so only the consumer that successfully accepts
 the synthetic turn acknowledges delivery; failed attempts release the claim for
@@ -141,7 +141,7 @@ retry.
 
 This does not resume child execution after a crash. A delegation whose owner
 process disappears while it is still running is recorded as `unknown`, because
-Hermes cannot prove whether its external side effects happened. Pending and
+Seple T Agent cannot prove whether its external side effects happened. Pending and
 delivered records are bounded and profile-local.
 
 ## Model Override
@@ -149,7 +149,7 @@ delivered records are bounded and profile-local.
 You can configure a different model for subagents via `config.yaml` — useful for delegating simple tasks to cheaper/faster models:
 
 ```yaml
-# In ~/.hermes/config.yaml
+# In ~/.Seple T Agent/config.yaml
 delegation:
   model: "google/gemini-flash-2.0"    # Cheaper model for subagents
   provider: "openrouter"              # Optional: route subagents to a different provider
@@ -204,7 +204,7 @@ delegation:
 A positive value enforces a hard wall-clock limit on each child; `0` or a negative value disables it.
 
 :::tip Diagnostic dump on zero-call timeout
-With a hard cap configured, if a subagent times out having made **zero** API calls (usually: provider unreachable, auth failure, or tool-schema rejection), `delegate_task` writes a structured diagnostic to `~/.hermes/logs/subagent-timeout-<session>-<timestamp>.log` containing the subagent's config snapshot, credential-resolution trace, and any early error messages. Much easier to root-cause than the previous silent-timeout behavior.
+With a hard cap configured, if a subagent times out having made **zero** API calls (usually: provider unreachable, auth failure, or tool-schema rejection), `delegate_task` writes a structured diagnostic to `~/.Seple T Agent/logs/subagent-timeout-<session>-<timestamp>.log` containing the subagent's config snapshot, credential-resolution trace, and any early error messages. Much easier to root-cause than the previous silent-timeout behavior.
 :::
 
 ## Monitoring Running Subagents (`/agents`)
@@ -241,11 +241,11 @@ delegate_task(
 ## Lifetime and Durability
 
 :::warning Background completion durability is not durable execution
-By default, `delegate_task` runs **inside the parent's current turn** and blocks until every child finishes. With `background=true`, the child may continue after that turn returns while the owning session and Hermes process remain alive:
+By default, `delegate_task` runs **inside the parent's current turn** and blocks until every child finishes. With `background=true`, the child may continue after that turn returns while the owning session and Seple T Agent process remain alive:
 
 - If the parent is interrupted (user sends a new message, `/stop`, `/new`), all active children are cancelled and return `status="interrupted"`. Their in-progress work is discarded.
 - Explicit session close/reset interrupts that session's background children. Closing a TUI viewer of a gateway-owned session does not kill the gateway's work.
-- A Hermes process restart does **not** resume a running child. Its attempt becomes `unknown` because Hermes cannot prove which side effects happened.
+- A Seple T Agent process restart does **not** resume a running child. Its attempt becomes `unknown` because Seple T Agent cannot prove which side effects happened.
 - A child that completed before restart but whose result was not delivered is restored and routed back through the owning session's normal checks.
 - Cancelled children return a structured result (`status="interrupted"`, `exit_reason="interrupted"`), but because the parent was interrupted too, that result often never makes it into a user-visible reply.
 
@@ -281,7 +281,7 @@ For **durable execution** that must survive session closure or process restart, 
 ## Configuration
 
 ```yaml
-# In ~/.hermes/config.yaml
+# In ~/.Seple T Agent/config.yaml
 delegation:
   max_iterations: 50                        # Max turns per child (default: 50)
   # max_concurrent_children: 3              # Parallel children per batch (default: 3)

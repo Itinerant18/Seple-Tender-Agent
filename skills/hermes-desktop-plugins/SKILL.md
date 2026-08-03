@@ -4,18 +4,18 @@ description: Write desktop app plugins that add UI panes and commands.
 version: 1.0.0
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  Seple T Agent:
     tags: [desktop, plugins, ui, extension]
     category: productivity
     related_skills: []
 ---
 
-# Hermes Desktop Plugins Skill
+# Seple T Agent Desktop Plugins Skill
 
-Write plugins for the Hermes desktop app: statusbar items, layout panes,
+Write plugins for the Seple T Agent desktop app: statusbar items, layout panes,
 command-palette commands, keybinds, routes, and themes. A plugin is a single
 plain-JavaScript ESM file the app loads at runtime — no build step, no repo
-changes. This skill does not cover backend plugins (`~/.hermes/plugins/`);
+changes. This skill does not cover backend plugins (`~/.Seple T Agent/plugins/`);
 those are Python and documented separately.
 
 ## When to Use
@@ -26,15 +26,15 @@ those are Python and documented separately.
 
 ## Prerequisites
 
-- The Hermes desktop app (it loads plugins; the CLI/gateway alone does not).
+- The Seple T Agent desktop app (it loads plugins; the CLI/gateway alone does not).
 - Write access to `$HERMES_HOME/desktop-plugins/` (usually
-  `~/.hermes/desktop-plugins/`).
+  `~/.Seple T Agent/desktop-plugins/`).
 
 ## How to Run
 
 1. Create `$HERMES_HOME/desktop-plugins/<name>/plugin.js` from
    `templates/plugin.js` (relative to this skill directory) — that's
-   `~/.hermes/...` by default, or `~/.hermes/profiles/<profile>/...` under a
+   `~/.Seple T Agent/...` by default, or `~/.Seple T Agent/profiles/<profile>/...` under a
    named profile. Keep `<name>` equal to the plugin `id`.
 2. The desktop app watches that directory: the plugin loads within a few
    seconds of the file landing, and every later save hot-reloads it in
@@ -45,7 +45,7 @@ those are Python and documented separately.
 
 ## Quick Reference
 
-The ONLY import surface is `@hermes/plugin-sdk` (plus `react` /
+The ONLY import surface is `@Seple T Agent/plugin-sdk` (plus `react` /
 `react/jsx-runtime`, which resolve to the app's own React — write UI with
 `jsx()` calls, not JSX syntax; the file is not compiled).
 
@@ -121,7 +121,7 @@ The ONLY import surface is `@hermes/plugin-sdk` (plus `react` /
   blank space or blurry scaling.
 - JSX syntax will not parse — the file loads uncompiled. Use
   `jsx('div', { children: ... })` from `react/jsx-runtime`.
-- Do not import anything except `@hermes/plugin-sdk`, `react`, and
+- Do not import anything except `@Seple T Agent/plugin-sdk`, `react`, and
   `react/jsx-runtime`; other specifiers fail to resolve.
 - Handlers must read state imperatively (`$atom.get()`), never from render
   closures — rapid events will otherwise see stale values.

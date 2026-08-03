@@ -546,7 +546,7 @@ export default function SystemPage() {
     setUpdateConfirmOpen(false);
     if (status?.can_update_hermes === false) {
       showToast(
-        "Hermes updates are managed outside this dashboard.",
+        "Seple T Agent updates are managed outside this dashboard.",
         "success",
       );
       return;
@@ -662,7 +662,7 @@ export default function SystemPage() {
         open={canUpdateHermes && updateConfirmOpen}
         onCancel={() => setUpdateConfirmOpen(false)}
         onConfirm={() => void applyUpdate()}
-        title="Update Hermes?"
+        title="Update Seple T Agent?"
         description={
           updateInfo && updateInfo.behind && updateInfo.behind > 0
             ? `This will run 'hermes update' (${updateInfo.update_command}) and pull ${updateInfo.behind} new commit${updateInfo.behind === 1 ? "" : "s"}. The gateway restarts when the update finishes; the current session keeps its prompt cache until then.`
@@ -958,7 +958,7 @@ export default function SystemPage() {
       {/* ── Portal ────────────────────────────────────────────────── */}
       <section className="flex flex-col gap-3">
         <H2 variant="sm" className="flex items-center gap-2 text-muted-foreground">
-          <Globe className="h-4 w-4" /> Nous Portal
+          <Globe className="h-4 w-4" /> Novaedge Portal
         </H2>
         <Card>
           <CardContent className="flex flex-col gap-3 py-4">
@@ -972,7 +972,7 @@ export default function SystemPage() {
                 </span>
               )}
               <a
-                href={portal?.subscription_url || "https://portal.nousresearch.com/manage-subscription"}
+                href={portal?.subscription_url || "https://portal.Novaedge.com/manage-subscription"}
                 target="_blank"
                 rel="noreferrer"
                 className="ml-auto text-xs text-primary underline"
@@ -1327,8 +1327,8 @@ export default function SystemPage() {
             </div>
             <ConfirmDialog
               open={!!importConfirmTarget}
-              title="Restore full Hermes backup?"
-              description={`This will overwrite your current Hermes configuration, skills, sessions, and data with the contents of ${backupImportLabel(importConfirmTarget)}. This cannot be undone.`}
+              title="Restore full Seple T Agent backup?"
+              description={`This will overwrite your current Seple T Agent configuration, skills, sessions, and data with the contents of ${backupImportLabel(importConfirmTarget)}. This cannot be undone.`}
               destructive
               confirmLabel="Restore"
               cancelLabel="Cancel"
@@ -1354,7 +1354,7 @@ export default function SystemPage() {
                   <span className="text-sm font-medium">Share debug report</span>
                   <span className="text-xs text-muted-foreground max-w-prose">
                     Uploads system info + logs to a public paste service and
-                    returns links to send the Hermes team. Pastes auto-delete
+                    returns links to send the Seple T Agent team. Pastes auto-delete
                     after 6 hours.
                   </span>
                 </div>

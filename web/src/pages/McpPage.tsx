@@ -443,7 +443,7 @@ export default function McpPage() {
                   )}
                   {httpAuth === "oauth" && (
                     <p className="text-xs text-muted-foreground">
-                      Add the server, then use Authenticate. Hermes opens the
+                      Add the server, then use Authenticate. Seple T Agent opens the
                       OAuth browser on the machine running the Dashboard
                       backend.
                     </p>
@@ -747,7 +747,7 @@ export default function McpPage() {
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Browse Nous-approved MCP servers and install them with one click.
+          Browse Novaedge-approved MCP servers and install them with one click.
         </p>
 
         {catalog.length === 0 && (

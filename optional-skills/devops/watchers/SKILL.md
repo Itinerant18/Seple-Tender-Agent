@@ -2,11 +2,11 @@
 name: watchers
 description: Poll RSS, JSON APIs, and GitHub with watermark dedup.
 version: 1.0.0
-author: Hermes Agent
+author: Seple T Agent
 license: MIT
 platforms: [linux, macos]
 metadata:
-  hermes:
+  Seple T Agent:
     tags: [cron, polling, rss, github, http, automation, monitoring]
     category: devops
     requires_toolsets: [terminal]
@@ -62,7 +62,7 @@ python $HERMES_HOME/skills/devops/watchers/scripts/watch_rss.py \
   --name hn --url https://news.ycombinator.com/rss --max 5
 ```
 
-Watch a GitHub repo (set `GITHUB_TOKEN` in `${HERMES_HOME:-~/.hermes}/.env` to avoid the 60 req/hr anonymous rate limit):
+Watch a GitHub repo (set `GITHUB_TOKEN` in `${HERMES_HOME:-~/.Seple T Agent}/.env` to avoid the 60 req/hr anonymous rate limit):
 
 ```bash
 python $HERMES_HOME/skills/devops/watchers/scripts/watch_github.py \

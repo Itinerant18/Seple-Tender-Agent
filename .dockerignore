@@ -106,3 +106,4 @@ acp_registry/
 .gitattributes
 .hadolint.yaml
 .mailmap
+hermes_cli/web_dist/

@@ -40,8 +40,8 @@ const DEFAULT_LAYOUT: ThemeLayout = {
 
 export const defaultTheme: DashboardTheme = {
   name: "default",
-  label: "Hermes Teal",
-  description: "Classic dark teal — the canonical Hermes look",
+  label: "Seple T Agent Teal",
+  description: "Classic dark teal — the canonical Seple T Agent look",
   palette: {
     background: { hex: "#041c1c", alpha: 1 },
     midground: { hex: "#ffe6cb", alpha: 1 },
@@ -184,11 +184,11 @@ export const roseTheme: DashboardTheme = {
   },
 };
 
-/** Light mode — vivid Nous-blue accents on a cream canvas. */
+/** Light mode — vivid Novaedge-blue accents on a cream canvas. */
 export const nousBlueTheme: DashboardTheme = {
   name: "nous-blue",
-  label: "Nous Blue",
-  description: "Light mode — vivid Nous-blue accents on cream canvas",
+  label: "Novaedge Blue",
+  description: "Light mode — vivid Novaedge-blue accents on cream canvas",
   palette: {
     background: { hex: "#E8F2FD", alpha: 1 },
     midground: { hex: "#0053FD", alpha: 1 },
@@ -214,8 +214,8 @@ export const nousBlueTheme: DashboardTheme = {
  */
 export const defaultLargeTheme: DashboardTheme = {
   name: "default-large",
-  label: "Hermes Teal (Large)",
-  description: "Hermes Teal with bigger fonts and roomier spacing",
+  label: "Seple T Agent Teal (Large)",
+  description: "Seple T Agent Teal with bigger fonts and roomier spacing",
   palette: defaultTheme.palette,
   typography: {
     ...DEFAULT_TYPOGRAPHY,

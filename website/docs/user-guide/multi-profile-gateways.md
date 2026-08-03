@@ -10,12 +10,12 @@ covers the operational concerns: starting them all together, viewing logs
 across profiles, preventing the host from sleeping, and recovering from common
 launchd/systemd quirks.
 
-If you only run one Hermes agent, you don't need this page — see
+If you only run one Seple T Agent agent, you don't need this page — see
 [Profiles](./profiles.md) for the basics.
 
 ## When to use this
 
-You want this setup when you have two or more Hermes agents that should all
+You want this setup when you have two or more Seple T Agent agents that should all
 be online at the same time. Common reasons:
 
 - A personal assistant on one Telegram bot and a coding agent on another
@@ -25,7 +25,7 @@ be online at the same time. Common reasons:
   memory and skills
 
 Every profile already gets its own per-platform LaunchAgent
-(`ai.hermes.gateway-<name>.plist`) or systemd user service
+(`ai.Seple T Agent.gateway-<name>.plist`) or systemd user service
 (`hermes-gateway-<name>.service`). This guide adds the patterns for managing
 them collectively.
 
@@ -33,9 +33,9 @@ them collectively.
 
 ```bash
 # Create profiles (once)
-hermes profile create coder
-hermes profile create personal-bot
-hermes profile create research
+Seple T Agent profile create coder
+Seple T Agent profile create personal-bot
+Seple T Agent profile create research
 
 # Configure each
 coder setup
@@ -85,11 +85,11 @@ Set the flag on the **default profile** (it owns the multiplexer) and restart
 its gateway:
 
 ```bash
-hermes config set gateway.multiplex_profiles true
-hermes gateway restart
+Seple T Agent config set gateway.multiplex_profiles true
+Seple T Agent gateway restart
 ```
 
-Equivalently, in the default profile's `~/.hermes/config.yaml`:
+Equivalently, in the default profile's `~/.Seple T Agent/config.yaml`:
 
 ```yaml
 gateway:
@@ -103,7 +103,7 @@ credentials, and routes each inbound message to the profile it belongs to. Each
 turn resolves the routed profile's config, skills, memory, SOUL, **and provider
 keys** — credentials are never shared across profiles.
 
-You do **not** run `hermes gateway start` for the secondary profiles — the
+You do **not** run `Seple T Agent gateway start` for the secondary profiles — the
 default gateway serves them. See the contract changes below.
 
 ### What changes when multiplexing is on
@@ -113,7 +113,7 @@ moment the flag is off.
 
 #### 1. Secondary profiles must not start their own gateway
 
-With a multiplexer running, a named-profile `hermes gateway start` / `run` is a
+With a multiplexer running, a named-profile `Seple T Agent gateway start` / `run` is a
 **hard error**, pointing you back at the multiplexer:
 
 ```
@@ -175,8 +175,8 @@ migration, no orphaned history.
 #### 5. One PID/lock and one status surface
 
 There is a single process-level PID and lock (the multiplexer, under the default
-home). `hermes status` reports the multiplexer and the profiles it serves;
-`hermes status -p <name>` slices to one profile. Each profile still writes its
+home). `Seple T Agent status` reports the multiplexer and the profiles it serves;
+`Seple T Agent status -p <name>` slices to one profile. Each profile still writes its
 own `runtime_status.json` under its own home, so existing per-profile readers
 keep working.
 
@@ -254,9 +254,9 @@ run_for_profile() {
   profile="$1"
   action="$2"
   if [ "$profile" = "default" ]; then
-    hermes gateway "$action"
+    Seple T Agent gateway "$action"
   else
-    hermes -p "$profile" gateway "$action"
+    Seple T Agent -p "$profile" gateway "$action"
   fi
 }
 
@@ -269,7 +269,7 @@ case "$action" in
     done
     ;;
   list)
-    hermes gateway list
+    Seple T Agent gateway list
     ;;
   *)
     usage
@@ -285,12 +285,12 @@ hermes-gateways start      # start every configured profile
 hermes-gateways stop       # stop every configured profile
 hermes-gateways restart    # restart all
 hermes-gateways status     # status across all
-hermes-gateways list       # delegates to `hermes gateway list`
+hermes-gateways list       # delegates to `Seple T Agent gateway list`
 ```
 
 :::tip
-The `default` profile is targeted with `hermes gateway <action>` (no `-p`),
-not `hermes -p default gateway <action>`. The wrapper above handles both forms.
+The `default` profile is targeted with `Seple T Agent gateway <action>` (no `-p`),
+not `Seple T Agent -p default gateway <action>`. The wrapper above handles both forms.
 :::
 
 ## Manage one profile
@@ -307,7 +307,7 @@ coder gateway install    # create the LaunchAgent / systemd unit
 coder gateway uninstall  # remove the service file
 ```
 
-These are equivalent to `hermes -p coder gateway <action>` — useful if a
+These are equivalent to `Seple T Agent -p coder gateway <action>` — useful if a
 profile alias is not on `PATH` or if you target profiles dynamically from a
 script.
 
@@ -318,10 +318,10 @@ never clash:
 
 | Platform | Path                                                              |
 | -------- | ----------------------------------------------------------------- |
-| macOS    | `~/Library/LaunchAgents/ai.hermes.gateway-<profile>.plist`        |
+| macOS    | `~/Library/LaunchAgents/ai.Seple T Agent.gateway-<profile>.plist`        |
 | Linux    | `~/.config/systemd/user/hermes-gateway-<profile>.service`         |
 
-The default profile keeps the historical names: `ai.hermes.gateway.plist` /
+The default profile keeps the historical names: `ai.Seple T Agent.gateway.plist` /
 `hermes-gateway.service`.
 
 ## Viewing logs
@@ -330,34 +330,34 @@ Each profile writes to its own log files:
 
 ```bash
 # Default profile
-tail -f ~/.hermes/logs/gateway.log
-tail -f ~/.hermes/logs/gateway.error.log
+tail -f ~/.Seple T Agent/logs/gateway.log
+tail -f ~/.Seple T Agent/logs/gateway.error.log
 
 # Named profile
-tail -f ~/.hermes/profiles/<name>/logs/gateway.log
-tail -f ~/.hermes/profiles/<name>/logs/gateway.error.log
+tail -f ~/.Seple T Agent/profiles/<name>/logs/gateway.log
+tail -f ~/.Seple T Agent/profiles/<name>/logs/gateway.error.log
 ```
 
 Stream every profile's log simultaneously:
 
 ```bash
-tail -f ~/.hermes/logs/gateway.log ~/.hermes/profiles/*/logs/gateway.log
+tail -f ~/.Seple T Agent/logs/gateway.log ~/.Seple T Agent/profiles/*/logs/gateway.log
 ```
 
 The CLI also has a structured log viewer:
 
 ```bash
-hermes logs -f                  # follow default profile
-hermes -p coder logs -f         # follow one profile
-hermes logs --help              # filters, levels, JSON output
+Seple T Agent logs -f                  # follow default profile
+Seple T Agent -p coder logs -f         # follow one profile
+Seple T Agent logs --help              # filters, levels, JSON output
 ```
 
 ## Identify what's actually running
 
 ```bash
-hermes profile list             # profiles + model + gateway state
+Seple T Agent profile list             # profiles + model + gateway state
 hermes-gateways status          # full status across every profile
-launchctl list | grep hermes    # macOS — PIDs and labels
+launchctl list | grep Seple T Agent    # macOS — PIDs and labels
 systemctl --user list-units 'hermes-gateway-*'   # Linux — units
 ```
 
@@ -366,18 +366,18 @@ systemctl --user list-units 'hermes-gateway-*'   # Linux — units
 Every profile keeps its config inside its own directory:
 
 ```
-~/.hermes/profiles/<name>/
+~/.Seple T Agent/profiles/<name>/
 ├── .env              # API keys, bot tokens (chmod 600)
 ├── config.yaml       # model, provider, toolsets, gateway settings
 └── SOUL.md           # personality / system prompt
 ```
 
-The default profile uses `~/.hermes/` directly with the same three files.
+The default profile uses `~/.Seple T Agent/` directly with the same three files.
 
 Edit them with any editor or via the CLI:
 
 ```bash
-hermes config set model.model anthropic/claude-sonnet-4    # default profile
+Seple T Agent config set model.model anthropic/claude-sonnet-4    # default profile
 coder config set model.model openai/gpt-5                  # named profile
 ```
 
@@ -401,7 +401,7 @@ to sleep when idle. Two patterns:
 ```bash
 caffeinate -dis                    # block display, idle, and system sleep
 caffeinate -dis -t 28800           # same, auto-exit after 8 hours
-caffeinate -i -w $(cat ~/.hermes/gateway.pid) &   # awake while default gateway runs
+caffeinate -i -w $(cat ~/.Seple T Agent/gateway.pid) &   # awake while default gateway runs
 
 # Persistent: run in background and forget
 nohup caffeinate -dis >/dev/null 2>&1 &
@@ -432,7 +432,7 @@ use a third-party tool.
 
 ```bash
 # Inhibit suspend while a command runs
-systemd-inhibit --what=idle:sleep --who=hermes --why="gateways running" \
+systemd-inhibit --what=idle:sleep --who=Seple T Agent --why="gateways running" \
   sleep infinity &
 
 # Allow user services to keep running after logout (recommended)
@@ -453,16 +453,16 @@ To audit:
 
 ```bash
 grep -H 'TELEGRAM_BOT_TOKEN\|DISCORD_BOT_TOKEN' \
-     ~/.hermes/.env ~/.hermes/profiles/*/.env
+     ~/.Seple T Agent/.env ~/.Seple T Agent/profiles/*/.env
 ```
 
 ## Updating the code
 
-`hermes update` pulls the latest code once and syncs new bundled skills into
+`Seple T Agent update` pulls the latest code once and syncs new bundled skills into
 every profile:
 
 ```bash
-hermes update
+Seple T Agent update
 hermes-gateways restart
 ```
 
@@ -472,7 +472,7 @@ User-modified skills are never overwritten.
 
 ### "Could not find service in domain for user gui: 501"
 
-You ran `hermes gateway start` after a previous `hermes gateway stop`. The
+You ran `Seple T Agent gateway start` after a previous `Seple T Agent gateway stop`. The
 CLI's `stop` does a full `launchctl unload`, which removes the service from
 launchd's registry. The CLI catches this specific error on `start` and
 automatically re-loads the plist (`↻ launchd job was unloaded; reloading
@@ -484,7 +484,7 @@ If a profile's gateway shows `not running` but a process is still alive:
 
 ```bash
 ps -ef | grep "hermes_cli.*-p <profile>"
-cat ~/.hermes/profiles/<profile>/gateway.pid
+cat ~/.Seple T Agent/profiles/<profile>/gateway.pid
 kill -TERM <pid>          # graceful
 kill -KILL <pid>          # if that fails after a few seconds
 <profile> gateway start
@@ -494,8 +494,8 @@ kill -KILL <pid>          # if that fails after a few seconds
 
 ```bash
 # macOS
-launchctl unload ~/Library/LaunchAgents/ai.hermes.gateway-<profile>.plist
-launchctl load   ~/Library/LaunchAgents/ai.hermes.gateway-<profile>.plist
+launchctl unload ~/Library/LaunchAgents/ai.Seple T Agent.gateway-<profile>.plist
+launchctl load   ~/Library/LaunchAgents/ai.Seple T Agent.gateway-<profile>.plist
 
 # Linux
 systemctl --user restart hermes-gateway-<profile>.service
@@ -504,6 +504,6 @@ systemctl --user restart hermes-gateway-<profile>.service
 ### Health check
 
 ```bash
-hermes doctor                  # default profile
-hermes -p <profile> doctor     # one profile
+Seple T Agent doctor                  # default profile
+Seple T Agent -p <profile> doctor     # one profile
 ```

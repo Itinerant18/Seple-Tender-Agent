@@ -17,7 +17,7 @@ GitHub auth 设置：HTTPS 令牌、SSH 密钥、gh CLI 登录。
 | 来源 | 内置（默认安装） |
 | 路径 | `skills/github/github-auth` |
 | 版本 | `1.1.0` |
-| 作者 | Hermes Agent |
+| 作者 | Seple T Agent |
 | 许可证 | MIT |
 | 平台 | linux, macos, windows |
 | 标签 | `GitHub`, `Authentication`, `Git`, `gh-cli`, `SSH`, `Setup` |
@@ -26,7 +26,7 @@ GitHub auth 设置：HTTPS 令牌、SSH 密钥、gh CLI 登录。
 ## 参考：完整 SKILL.md
 
 :::info
-以下是 Hermes 在触发此 skill 时加载的完整 skill 定义。这是 agent 在 skill 激活时所看到的指令内容。
+以下是 Seple T Agent 在触发此 skill 时加载的完整 skill 定义。这是 agent 在 skill 激活时所看到的指令内容。
 :::
 
 # GitHub 认证设置
@@ -238,8 +238,8 @@ if command -v gh &>/dev/null && gh auth status &>/dev/null; then
   echo "AUTH_METHOD=gh"
 elif [ -n "$GITHUB_TOKEN" ]; then
   echo "AUTH_METHOD=curl"
-elif [ -f ~/.hermes/.env ] && grep -q "^GITHUB_TOKEN=" ~/.hermes/.env; then
-  export GITHUB_TOKEN=$(grep "^GITHUB_TOKEN=" ~/.hermes/.env | head -1 | cut -d= -f2 | tr -d '\n\r')
+elif [ -f ~/.Seple T Agent/.env ] && grep -q "^GITHUB_TOKEN=" ~/.Seple T Agent/.env; then
+  export GITHUB_TOKEN=$(grep "^GITHUB_TOKEN=" ~/.Seple T Agent/.env | head -1 | cut -d= -f2 | tr -d '\n\r')
   echo "AUTH_METHOD=curl"
 elif grep -q "github.com" ~/.git-credentials 2>/dev/null; then
   export GITHUB_TOKEN=$(grep "github.com" ~/.git-credentials | head -1 | sed 's|https://[^:]*:\([^@]*\)@.*|\1|')

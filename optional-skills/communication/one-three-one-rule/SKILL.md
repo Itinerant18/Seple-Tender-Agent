@@ -14,7 +14,7 @@ author: Willard Moore
 license: MIT
 category: communication
 metadata:
-  hermes:
+  Seple T Agent:
     tags: [communication, decision-making, proposals, trade-offs]
 ---
 

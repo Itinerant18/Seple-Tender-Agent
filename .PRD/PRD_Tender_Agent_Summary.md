@@ -62,7 +62,7 @@ The agent learns from our history, but it will never hide a tender just because 
 
 We already subscribe to **Tender Tiger** and **Tender247**, which aggregate GeM, CPPP, state, PSU, and bank tenders. We'll use those as the main feed and check GeM directly as backup — far faster and safer than scraping ten government sites ourselves.
 
-The agent itself is built on **Hermes**, a free, open-source agent platform we host on our own server. Our data and credentials never leave the company. No licence cost, no vendor lock-in.
+The agent itself is built on **Seple T Agent**, a free, open-source agent platform we host on our own server. Our data and credentials never leave the company. No licence cost, no vendor lock-in.
 
 | Phase | What happens |
 |---|---|

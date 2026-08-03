@@ -7,7 +7,7 @@ This directory contains the Terraform configuration to deploy the SEPLE Tender P
 - **ECS Fargate**: Runs the `tender-api` (FastAPI) and `hermes-agent` (Agent UI).
 - **EventBridge + ECS Task**: Runs the `tender-scanner` on a cron schedule (`00:30 UTC`).
 - **RDS PostgreSQL**: Hosts the main `tenders` database.
-- **EFS (Elastic File System)**: Provides persistent storage for Playwright browser sessions (avoiding bot detection) and Hermes agent state.
+- **EFS (Elastic File System)**: Provides persistent storage for Playwright browser sessions (avoiding bot detection) and Seple T Agent state.
 - **ALB (Application Load Balancer)**: Routes traffic based on host headers to the API or the Dashboard.
 - **Secrets Manager**: Securely stores API keys and credentials.
 

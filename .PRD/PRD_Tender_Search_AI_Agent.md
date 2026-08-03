@@ -532,15 +532,15 @@ The same sets become the **regression suite**: every change to matching logic or
 
 ---
 
-## 19. Proposed Implementation Approach — Hermes Agent (v1.1)
+## 19. Proposed Implementation Approach — Seple T Agent (v1.1)
 
 ### 19.1 Platform under evaluation
 
-The team proposes building on **Hermes Agent** (NousResearch, open source, MIT license) as the agent runtime, rather than developing an agent loop from scratch.
+The team proposes building on **Seple T Agent** (NousResearch, open source, MIT license) as the agent runtime, rather than developing an agent loop from scratch.
 
-### 19.2 Why Hermes fits this PRD
+### 19.2 Why Seple T Agent fits this PRD
 
-| PRD requirement | Hermes capability |
+| PRD requirement | Seple T Agent capability |
 |---|---|
 | Self-hosted; internal data security (§14) | Fully self-hostable on company infrastructure; data stays in-house; MIT license permits commercial use and modification |
 | Continuous monitoring + morning digest (§8.1, F1) | Built-in cron scheduler for recurring jobs |
@@ -550,15 +550,15 @@ The team proposes building on **Hermes Agent** (NousResearch, open source, MIT l
 | Model flexibility / no lock-in | Supports Anthropic, OpenAI, AWS Bedrock, local models and others; switchable without code changes |
 | Audit logs (§9.4) | Conversation and action history persisted; supplemented by pipeline-level audit logging (19.4) |
 
-### 19.3 What Hermes does NOT provide (must be built)
+### 19.3 What Seple T Agent does NOT provide (must be built)
 
-Hermes is a general agent runtime, not a tender pipeline. The following components are custom builds around it:
+Seple T Agent is a general agent runtime, not a tender pipeline. The following components are custom builds around it:
 
 1. **Ingestion connectors** — authenticated retrieval and parsing of listings from Tender Tiger, Tender247, and GeM. This is the largest single build item.
-2. **Tender database** — structured store with cross-source **deduplication** (the same tender will appear on GeM and both aggregators), status lifecycle, document repository, corrigendum detection, and audit log. Hermes memory is conversational and does not replace this.
+2. **Tender database** — structured store with cross-source **deduplication** (the same tender will appear on GeM and both aggregators), status lifecycle, document repository, corrigendum detection, and audit log. Seple T Agent memory is conversational and does not replace this.
 3. **Deterministic extraction & verification layer** — key fields (deadline, value, EMD, eligibility) parsed with rules and verified against source documents per §10; the LLM classifies and summarizes, it does not guess facts.
 4. **Dashboard / tracking sheet** (§8.3) — separate lightweight frontend over the tender database.
-5. **Hard guardrail enforcement** — §9.1 prohibitions are enforced at the tool level: the Hermes instance is provisioned with **read-only connectors only**. No payment, upload, form-submission, registration, or external-send capability is installed at all — prohibition by absence, not by instruction.
+5. **Hard guardrail enforcement** — §9.1 prohibitions are enforced at the tool level: the Seple T Agent instance is provisioned with **read-only connectors only**. No payment, upload, form-submission, registration, or external-send capability is installed at all — prohibition by absence, not by instruction.
 
 ### 19.4 Target architecture
 
@@ -572,7 +572,7 @@ Hermes is a general agent runtime, not a tender pipeline. The following componen
               (dedup · status · corrigenda · audit log)
                           │
                           ▼
-                   HERMES AGENT (self-hosted)
+                   Seple T Agent (self-hosted)
         classification (Strong/Potential/Low fit) · eligibility
         flagging · summary & synopsis generation · confidence +
         reasoning · cron digests · instant alerts via email/Slack
@@ -585,7 +585,7 @@ Hermes is a general agent runtime, not a tender pipeline. The following componen
 ### 19.5 Conditions and risks of this approach
 
 - **Aggregator dependency:** Phase 1 relies on Tender Tiger/Tender247 coverage and account continuity. Mitigation: GeM direct monitoring as verification channel; subscription renewals tracked; O9/O10 resolved before build.
-- **Open-source project risk:** Hermes is actively developed but externally maintained. Mitigation: pin to a tested release; the custom pipeline (ingestion, DB, dashboard) is framework-independent and survives a future runtime swap.
+- **Open-source project risk:** Seple T Agent is actively developed but externally maintained. Mitigation: pin to a tested release; the custom pipeline (ingestion, DB, dashboard) is framework-independent and survives a future runtime swap.
 - **Guardrail verification:** §12 validation must include negative tests confirming the agent cannot perform any §9.1 prohibited action.
 
 ---
@@ -595,7 +595,7 @@ Hermes is a general agent runtime, not a tender pipeline. The following componen
 | Version | Date | Changes |
 |---|---|---|
 | 1.0 | 15-07-2026 | Initial PRD from completed stakeholder questionnaire (Aniket Karmakar, R&N) |
-| 1.1 | 15-07-2026 | Added Tender Tiger and Tender247 as subscribed primary ingestion sources (§5); aggregator-first Phase 1 strategy (§15); credential-handling rule; open questions O9–O11; proposed implementation approach on Hermes Agent (§19) |
+| 1.1 | 15-07-2026 | Added Tender Tiger and Tender247 as subscribed primary ingestion sources (§5); aggregator-first Phase 1 strategy (§15); credential-handling rule; open questions O9–O11; proposed implementation approach on Seple T Agent (§19) |
 
 ---
 

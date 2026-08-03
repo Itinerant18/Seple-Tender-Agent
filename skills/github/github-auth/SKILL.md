@@ -2,11 +2,11 @@
 name: github-auth
 description: "GitHub auth setup: HTTPS tokens, SSH keys, gh CLI login."
 version: 1.1.0
-author: Hermes Agent
+author: Seple T Agent
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  Seple T Agent:
     tags: [GitHub, Authentication, Git, gh-cli, SSH, Setup]
     related_skills: [github-pr-workflow, github-code-review, github-issues, github-repo-management]
 ---
@@ -220,7 +220,7 @@ if command -v gh &>/dev/null && gh auth status &>/dev/null; then
   echo "AUTH_METHOD=gh"
 elif [ -n "$GITHUB_TOKEN" ]; then
   echo "AUTH_METHOD=curl"
-elif _hermes_env="${HERMES_HOME:-$HOME/.hermes}/.env"; [ -f "$_hermes_env" ] && grep -q "^GITHUB_TOKEN=" "$_hermes_env"; then
+elif _hermes_env="${HERMES_HOME:-$HOME/.Seple T Agent}/.env"; [ -f "$_hermes_env" ] && grep -q "^GITHUB_TOKEN=" "$_hermes_env"; then
   export GITHUB_TOKEN=$(grep "^GITHUB_TOKEN=" "$_hermes_env" | head -1 | cut -d= -f2 | tr -d '\n\r')
   echo "AUTH_METHOD=curl"
 elif grep -q "github.com" ~/.git-credentials 2>/dev/null; then

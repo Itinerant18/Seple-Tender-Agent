@@ -59,7 +59,7 @@ Primary agent settings are defined in `cli-config.seple.yaml`. This file gates t
 ### Starting the Agent
 ```bash
 # Start the interactive tender assistant
-hermes --config cli-config.seple.yaml
+Seple T Agent --config cli-config.seple.yaml
 ```
 
 ### Running a Scan

@@ -1,4 +1,4 @@
-# OpenAI-Compatible API Server for Hermes Agent
+# OpenAI-Compatible API Server for Seple T Agent
 
 ## Motivation
 
@@ -22,8 +22,8 @@ usable as a backend for all of them — no custom adapters needed.
 ```
 
 A user would:
-1. Set `API_SERVER_ENABLED=true` in `~/.hermes/.env`
-2. Run `hermes gateway` (API server starts alongside Telegram/Discord/etc.)
+1. Set `API_SERVER_ENABLED=true` in `~/.Seple T Agent/.env`
+2. Run `Seple T Agent gateway` (API server starts alongside Telegram/Discord/etc.)
 3. Point Open WebUI (or any frontend) at `http://localhost:8642/v1`
 4. Chat with hermes-agent through any OpenAI-compatible UI
 

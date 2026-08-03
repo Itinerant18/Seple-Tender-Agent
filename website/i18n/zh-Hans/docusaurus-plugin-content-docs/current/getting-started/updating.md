@@ -1,7 +1,7 @@
 ---
 sidebar_position: 3
 title: "更新与卸载"
-description: "如何将 Hermes Agent 更新至最新版本或将其卸载"
+description: "如何将 Seple T Agent 更新至最新版本或将其卸载"
 ---
 
 # 更新与卸载
@@ -11,62 +11,62 @@ description: "如何将 Hermes Agent 更新至最新版本或将其卸载"
 使用单条命令更新至最新版本：
 
 ```bash
-hermes update
+Seple T Agent update
 ```
 
 此命令会从 `main` 拉取最新代码、更新依赖项，并提示你配置自上次更新以来新增的选项。
 
 :::tip
-`hermes update` 会自动检测新的配置选项并提示你添加。如果跳过了该提示，可手动运行 `hermes config check` 查看缺失的选项，再运行 `hermes config migrate` 以交互方式添加。
+`Seple T Agent update` 会自动检测新的配置选项并提示你添加。如果跳过了该提示，可手动运行 `Seple T Agent config check` 查看缺失的选项，再运行 `Seple T Agent config migrate` 以交互方式添加。
 :::
 
 ### 更新过程
 
-运行 `hermes update` 时，将依次执行以下步骤：
+运行 `Seple T Agent update` 时，将依次执行以下步骤：
 
-1. **配对数据快照** — 保存一份轻量级的更新前状态快照（涵盖 `~/.hermes/pairing/`、飞书评论规则及其他运行时修改的状态文件）。可通过 [快照与回滚](../user-guide/checkpoints-and-rollback.md) 中描述的快照恢复流程进行恢复，或从 Hermes 写入 `~/.hermes/` 目录旁的最新快速快照 zip 文件中提取。
+1. **配对数据快照** — 保存一份轻量级的更新前状态快照（涵盖 `~/.Seple T Agent/pairing/`、飞书评论规则及其他运行时修改的状态文件）。可通过 [快照与回滚](../user-guide/checkpoints-and-rollback.md) 中描述的快照恢复流程进行恢复，或从 Seple T Agent 写入 `~/.Seple T Agent/` 目录旁的最新快速快照 zip 文件中提取。
 2. **Git pull** — 从 `main` 分支拉取最新代码并更新子模块
 3. **依赖安装** — 运行 `uv pip install -e ".[all]"` 以获取新增或变更的依赖项
 4. **配置迁移** — 检测自当前版本以来新增的配置选项并提示设置
-5. **Gateway 自动重启** — 更新完成后刷新正在运行的 gateway，使新代码立即生效。由服务管理的 gateway（Linux 上的 systemd、macOS 上的 launchd）通过服务管理器重启；手动启动的 gateway 在 Hermes 能将运行中的 PID 映射回某个 profile 时会自动重新启动。
+5. **Gateway 自动重启** — 更新完成后刷新正在运行的 gateway，使新代码立即生效。由服务管理的 gateway（Linux 上的 systemd、macOS 上的 launchd）通过服务管理器重启；手动启动的 gateway 在 Seple T Agent 能将运行中的 PID 映射回某个 profile 时会自动重新启动。
 
-### 仅预览：`hermes update --check`
+### 仅预览：`Seple T Agent update --check`
 
-想在拉取前确认是否有更新？运行 `hermes update --check` — 它会获取并与 `origin/main` 比较提交。不修改任何文件，不重启 gateway。适合在以"是否有更新"为条件的脚本和 cron 任务中使用。
+想在拉取前确认是否有更新？运行 `Seple T Agent update --check` — 它会获取并与 `origin/main` 比较提交。不修改任何文件，不重启 gateway。适合在以"是否有更新"为条件的脚本和 cron 任务中使用。
 
 ### 完整更新前备份：`--backup`
 
 对于高价值 profile（生产环境 gateway、团队共享安装），可选择在拉取前对 `HERMES_HOME`（配置、认证、会话、技能、配对数据）进行完整备份：
 
 ```bash
-hermes update --backup
+Seple T Agent update --backup
 ```
 
 或将其设为每次运行的默认行为：
 
 ```yaml
-# ~/.hermes/config.yaml
+# ~/.Seple T Agent/config.yaml
 updates:
   pre_update_backup: true
 ```
 
 `--backup` 在早期版本中是始终开启的行为，但在大型 home 目录上会给每次更新增加数分钟时间，因此现已改为按需启用。上述轻量级配对数据快照仍会无条件执行。
 
-### Windows：另一个 `hermes.exe` 正在运行
+### Windows：另一个 `Seple T Agent.exe` 正在运行
 
-在 Windows 上，如果 `hermes update` 检测到另一个 `hermes.exe` 进程持有 venv 入口点可执行文件的句柄，它将拒绝运行 — 最常见的情况是 Hermes Desktop 应用启动的后端进程、另一个终端中打开的 `hermes` REPL，或正在运行的 gateway：
+在 Windows 上，如果 `Seple T Agent update` 检测到另一个 `Seple T Agent.exe` 进程持有 venv 入口点可执行文件的句柄，它将拒绝运行 — 最常见的情况是 Seple T Agent Desktop 应用启动的后端进程、另一个终端中打开的 `Seple T Agent` REPL，或正在运行的 gateway：
 
 ```
-$ hermes update
-✗ Another hermes.exe is running:
-    PID 12345  hermes.exe
+$ Seple T Agent update
+✗ Another Seple T Agent.exe is running:
+    PID 12345  Seple T Agent.exe
 
-  Updating now would fail to overwrite ...\venv\Scripts\hermes.exe because
+  Updating now would fail to overwrite ...\venv\Scripts\Seple T Agent.exe because
   Windows blocks REPLACE on a running executable.
 
-  Close Hermes Desktop, exit any open `hermes` REPLs, and
-  stop the gateway (`hermes gateway stop`) before retrying.
-  Override with `hermes update --force` if you've already
+  Close Seple T Agent Desktop, exit any open `Seple T Agent` REPLs, and
+  stop the gateway (`Seple T Agent gateway stop`) before retrying.
+  Override with `Seple T Agent update --force` if you've already
   confirmed those processes will not write to the venv.
 ```
 
@@ -75,8 +75,8 @@ $ hermes update
 预期输出如下：
 
 ```
-$ hermes update
-Updating Hermes Agent...
+$ Seple T Agent update
+Updating Seple T Agent...
 📥 Pulling latest code...
 Already up to date.  (or: Updating abc1234..def5678)
 📦 Updating dependencies...
@@ -85,45 +85,45 @@ Already up to date.  (or: Updating abc1234..def5678)
 ✅ Config is up to date  (or: Found 2 new options — running migration...)
 🔄 Restarting gateways...
 ✅ Gateway restarted
-✅ Hermes Agent updated successfully!
+✅ Seple T Agent updated successfully!
 ```
 
 ### 更新后建议的验证步骤
 
-`hermes update` 处理主要的更新流程，但快速验证可确认一切正常落地：
+`Seple T Agent update` 处理主要的更新流程，但快速验证可确认一切正常落地：
 
 1. `git status --short` — 若工作树出现意外的脏状态，请在继续前检查
-2. `hermes doctor` — 检查配置、依赖项和服务健康状态
-3. `hermes --version` — 确认版本已按预期更新
-4. 如果使用 gateway：`hermes gateway status`
+2. `Seple T Agent doctor` — 检查配置、依赖项和服务健康状态
+3. `Seple T Agent --version` — 确认版本已按预期更新
+4. 如果使用 gateway：`Seple T Agent gateway status`
 5. 如果 `doctor` 报告 npm audit 问题：在标记的目录中运行 `npm audit fix`
 
 :::warning 更新后工作树出现脏状态
-如果 `hermes update` 后 `git status --short` 显示意外变更，请在继续前停下来检查。这通常意味着本地修改被重新应用到了更新后的代码之上，或依赖步骤刷新了锁文件。
+如果 `Seple T Agent update` 后 `git status --short` 显示意外变更，请在继续前停下来检查。这通常意味着本地修改被重新应用到了更新后的代码之上，或依赖步骤刷新了锁文件。
 :::
 
 ### 终端在更新中途断开连接
 
-`hermes update` 针对意外终端断开进行了保护：
+`Seple T Agent update` 针对意外终端断开进行了保护：
 
 - 更新会忽略 `SIGHUP`，因此关闭 SSH 会话或终端窗口不再会在安装中途终止它。`pip` 和 `git` 子进程继承此保护，因此 Python 环境不会因连接断开而处于半安装状态。
-- 更新运行期间，所有输出会同步镜像到 `~/.hermes/logs/update.log`。如果终端消失，重新连接后检查日志，确认更新是否完成以及 gateway 重启是否成功：
+- 更新运行期间，所有输出会同步镜像到 `~/.Seple T Agent/logs/update.log`。如果终端消失，重新连接后检查日志，确认更新是否完成以及 gateway 重启是否成功：
 
 ```bash
-tail -f ~/.hermes/logs/update.log
+tail -f ~/.Seple T Agent/logs/update.log
 ```
 
 - `Ctrl-C`（SIGINT）和系统关机（SIGTERM）仍会被响应 — 这些是主动取消操作，而非意外中断。
 
-你不再需要将 `hermes update` 包裹在 `screen` 或 `tmux` 中来应对终端断开。
+你不再需要将 `Seple T Agent update` 包裹在 `screen` 或 `tmux` 中来应对终端断开。
 
 ### 查看当前版本
 
 ```bash
-hermes version
+Seple T Agent version
 ```
 
-与 [GitHub releases 页面](https://github.com/NousResearch/hermes-agent/releases) 上的最新版本进行比较。
+与 [GitHub releases 页面](https://github.com/Novaedge/hermes-agent/releases) 上的最新版本进行比较。
 
 ### 从消息平台更新
 
@@ -150,8 +150,8 @@ git pull origin main
 uv pip install -e ".[all]"
 
 # Check for new config options
-hermes config check
-hermes config migrate   # Interactively add any missing options
+Seple T Agent config check
+Seple T Agent config migrate   # Interactively add any missing options
 ```
 
 ### 回滚说明
@@ -169,7 +169,7 @@ git checkout <commit-hash>
 uv pip install -e ".[all]"
 
 # Restart the gateway if running
-hermes gateway restart
+Seple T Agent gateway restart
 ```
 
 回滚到特定发布标签：
@@ -180,7 +180,7 @@ uv pip install -e ".[all]"
 ```
 
 :::warning
-如果新增了配置选项，回滚可能导致配置不兼容。回滚后运行 `hermes config check`，如果遇到错误，请从 `config.yaml` 中删除无法识别的选项。
+如果新增了配置选项，回滚可能导致配置不兼容。回滚后运行 `Seple T Agent config check`，如果遇到错误，请从 `config.yaml` 中删除无法识别的选项。
 :::
 
 ### Nix 用户注意事项
@@ -208,24 +208,24 @@ nix profile rollback
 ## 卸载
 
 ```bash
-hermes uninstall
+Seple T Agent uninstall
 ```
 
-卸载程序会提供选项，让你保留配置文件（`~/.hermes/`）以便将来重新安装。
+卸载程序会提供选项，让你保留配置文件（`~/.Seple T Agent/`）以便将来重新安装。
 
 ### 手动卸载
 
 ```bash
-rm -f ~/.local/bin/hermes
+rm -f ~/.local/bin/Seple T Agent
 rm -rf /path/to/hermes-agent
-rm -rf ~/.hermes            # 可选 — 如计划重新安装则保留
+rm -rf ~/.Seple T Agent            # 可选 — 如计划重新安装则保留
 ```
 
 :::info
 如果你将 gateway 安装为系统服务，请先停止并禁用它：
 ```bash
-hermes gateway stop
+Seple T Agent gateway stop
 # Linux: systemctl --user disable hermes-gateway
-# macOS: launchctl remove ai.hermes.gateway
+# macOS: launchctl remove ai.Seple T Agent.gateway
 ```
 :::

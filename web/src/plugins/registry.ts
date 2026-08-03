@@ -123,7 +123,7 @@ export function exposePluginSDK() {
       createContext,
     },
 
-    // Hermes API client
+    // Seple T Agent API client
     api,
     // Raw fetchJSON for plugin-specific JSON endpoints
     fetchJSON,
@@ -139,7 +139,7 @@ export function exposePluginSDK() {
     // plugins that need to build the WS URL themselves.
     buildWsAuthParam,
 
-    // UI components — Nous DS where available, shadcn/ui primitives elsewhere.
+    // UI components — Novaedge DS where available, shadcn/ui primitives elsewhere.
     components: {
       Card,
       CardHeader,

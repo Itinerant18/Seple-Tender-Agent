@@ -131,16 +131,16 @@ delegate_task(
 
 ### 持久化后台完成事件
 
-后台委派完成后，Hermes 会先把完成事件写入当前 profile 的 `state.db`，再发布到正常的新轮次队列。如果 Hermes 在完成后、交付前重启，待处理事件会被恢复，并继续经过相同的所有权检查。多个消费者通过持久化 claim 竞争；只有成功接收合成轮次的消费者会确认交付，失败尝试会释放 claim 以便重试。
+后台委派完成后，Seple T Agent 会先把完成事件写入当前 profile 的 `state.db`，再发布到正常的新轮次队列。如果 Seple T Agent 在完成后、交付前重启，待处理事件会被恢复，并继续经过相同的所有权检查。多个消费者通过持久化 claim 竞争；只有成功接收合成轮次的消费者会确认交付，失败尝试会释放 claim 以便重试。
 
-这不会在崩溃后恢复子智能体执行。如果委派仍在运行时其所有者进程消失，Hermes 会将其记录为 `unknown`，因为无法证明外部副作用是否已经发生。待处理和已交付记录都有界，并按 profile 隔离。
+这不会在崩溃后恢复子智能体执行。如果委派仍在运行时其所有者进程消失，Seple T Agent 会将其记录为 `unknown`，因为无法证明外部副作用是否已经发生。待处理和已交付记录都有界，并按 profile 隔离。
 
 ## 模型覆盖
 
 你可以通过 `config.yaml` 为子智能体配置不同的模型——适用于将简单任务委派给更便宜/更快的模型：
 
 ```yaml
-# In ~/.hermes/config.yaml
+# In ~/.Seple T Agent/config.yaml
 delegation:
   model: "google/gemini-flash-2.0"    # Cheaper model for subagents
   provider: "openrouter"              # Optional: route subagents to a different provider
@@ -196,7 +196,7 @@ delegation:
 正值会对每个子智能体强制执行挂钟时间硬限制；`0` 或负值表示禁用。
 
 :::tip 零调用超时时的诊断转储
-在配置了硬性上限的情况下，如果子智能体在**零次** API 调用的情况下超时（通常原因：provider 不可达、认证失败或工具 schema 被拒绝），`delegate_task` 会将结构化诊断信息写入 `~/.hermes/logs/subagent-timeout-<session>-<timestamp>.log`，其中包含子智能体的配置快照、凭据解析追踪以及早期错误消息。比之前的静默超时行为更易于定位根因。
+在配置了硬性上限的情况下，如果子智能体在**零次** API 调用的情况下超时（通常原因：provider 不可达、认证失败或工具 schema 被拒绝），`delegate_task` 会将结构化诊断信息写入 `~/.Seple T Agent/logs/subagent-timeout-<session>-<timestamp>.log`，其中包含子智能体的配置快照、凭据解析追踪以及早期错误消息。比之前的静默超时行为更易于定位根因。
 :::
 
 ## 监控运行中的子智能体（`/agents`）
@@ -233,11 +233,11 @@ delegate_task(
 ## 生命周期与持久性
 
 :::warning 后台完成事件持久化并不等于执行持久化
-默认情况下，`delegate_task` 在**父智能体的当前轮次内**运行，并阻塞到所有子智能体完成。使用 `background=true` 时，只要所属会话和 Hermes 进程仍然存活，子智能体可以在该轮次返回后继续运行：
+默认情况下，`delegate_task` 在**父智能体的当前轮次内**运行，并阻塞到所有子智能体完成。使用 `background=true` 时，只要所属会话和 Seple T Agent 进程仍然存活，子智能体可以在该轮次返回后继续运行：
 
 - 如果父智能体被中断（用户发送新消息、`/stop`、`/new`），所有活跃的子智能体都会被取消并返回 `status="interrupted"`。其进行中的工作将被丢弃。
 - 显式关闭或重置会话会中断该会话的后台子智能体。关闭由 TUI 查看、但由网关拥有的会话不会终止网关自己的后台工作。
-- Hermes 进程重启后不会恢复仍在运行的子智能体；该尝试会变为 `unknown`，因为 Hermes 无法证明哪些外部副作用已经发生。
+- Seple T Agent 进程重启后不会恢复仍在运行的子智能体；该尝试会变为 `unknown`，因为 Seple T Agent 无法证明哪些外部副作用已经发生。
 - 如果子智能体在重启前已经完成、但结果尚未交付，该完成事件会被恢复，并重新经过所属会话的正常路由检查。
 - 被取消的子智能体会返回结构化结果（`status="interrupted"`，`exit_reason="interrupted"`），但由于父智能体也被中断，该结果通常不会出现在用户可见的回复中。
 
@@ -273,7 +273,7 @@ delegate_task(
 ## 配置
 
 ```yaml
-# In ~/.hermes/config.yaml
+# In ~/.Seple T Agent/config.yaml
 delegation:
   max_iterations: 50                        # Max turns per child (default: 50)
   # max_concurrent_children: 3              # Parallel children per batch (default: 3)

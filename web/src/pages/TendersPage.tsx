@@ -7,7 +7,7 @@ import { Card, CardContent } from "@nous-research/ui/ui/components/card";
 import { usePageHeader } from "@/contexts/usePageHeader";
 
 // tender-api runs as its own service (compose: tender-api:8000), separate from
-// the Hermes dashboard server — so we can't use the built-in `api` helper.
+// the Seple T Agent dashboard server — so we can't use the built-in `api` helper.
 // CORS on tender-api is open (allow_origins=["*"]). Override per-deployment with
 // VITE_TENDER_API_URL if the API isn't on localhost:8000.
 // ponytail: hardcoded localhost default; set VITE_TENDER_API_URL to change.
