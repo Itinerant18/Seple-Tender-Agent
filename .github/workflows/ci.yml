@@ -21,6 +21,7 @@ permissions:
   actions: read # needed by osv-scanner (SARIF upload)
   security-events: write # needed by osv-scanner (SARIF upload)
   packages: write # needed by docker build
+  id-token: write # needed by docker-seple + deploy (AWS OIDC role)
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -160,6 +161,41 @@ jobs:
               sys.exit(1)
           print('All checks passed (or were skipped)')
           "
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Deploy: force a new ECS deployment so the api/agent services pull the
+  # freshly-pushed ECR ``:latest`` images. Gated on ``all-checks-pass`` —
+  # a red build never reaches the running services. Main pushes only.
+  # The scanner has no long-running service; it picks up ``:latest`` on its
+  # next scheduled EventBridge run, so no redeploy step is needed for it.
+  # ─────────────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to AWS ECS
+    needs: [all-checks-pass, docker-seple]
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      needs.all-checks-pass.result == 'success' &&
+      needs.docker-seple.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Force new ECS deployment (api + agent)
+        run: |
+          for svc in seple-tender-prod-api-svc seple-tender-prod-agent-svc; do
+            aws ecs update-service \
+              --cluster seple-tender-prod-cluster \
+              --service "$svc" \
+              --force-new-deployment \
+              --query 'service.serviceName' --output text
+          done
 
   # ─────────────────────────────────────────────────────────────────────
   # CI timing report: collect per-job/step durations from the GitHub API,
