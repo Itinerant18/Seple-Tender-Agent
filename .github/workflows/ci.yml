@@ -172,7 +172,13 @@ jobs:
   deploy:
     name: Deploy to AWS ECS
     needs: [all-checks-pass, docker-seple]
+    # `always() &&` disables the implicit success() gate GitHub adds when an
+    # if has no status function — needed because the upstream gate job
+    # (all-checks-pass) runs under `if: always()`, which makes that implicit
+    # success() evaluate false and silently skip this job. The explicit
+    # result checks below are what actually gate the deploy.
     if: >-
+      always() &&
       github.event_name == 'push' && github.ref == 'refs/heads/main' &&
       needs.all-checks-pass.result == 'success' &&
       needs.docker-seple.result == 'success'
