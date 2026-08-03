@@ -1,6 +1,11 @@
 import pytest
 
-from scheduler import run_once
+# The scheduler imports the Playwright-backed scrapers at module load; skip the
+# whole module where Playwright isn't installed (the CI unit-test env), while
+# still running it in the scanner image where it is.
+pytest.importorskip("playwright")
+
+from scheduler import run_once  # noqa: E402
 
 
 @pytest.mark.asyncio

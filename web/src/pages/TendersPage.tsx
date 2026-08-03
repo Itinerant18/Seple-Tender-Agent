@@ -12,7 +12,6 @@ import { usePageHeader } from "@/contexts/usePageHeader";
 // VITE_TENDER_API_URL if the API isn't on localhost:8000.
 // ponytail: hardcoded localhost default; set VITE_TENDER_API_URL to change.
 const TENDER_API =
-  // @ts-ignore: Vite replaces this statically at build time
   import.meta.env.VITE_TENDER_API_URL || "http://localhost:8000";
 
 type Tender = {

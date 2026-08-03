@@ -55,6 +55,8 @@ TENDER_247_API_KEY=...
 ### Deployment
 SEPLE T AGENT supports containerized deployment for maximum uptime and scalability across cloud and local infrastructure.
 
+**Windows (native):** run `scripts/install.ps1` in PowerShell for a Docker-free local setup.
+
 ## 📜 Strategic Mandate
 SEPLE T AGENT operates as a **Decision Support System**. It empowers human experts by removing the cognitive load of searching and filtering, allowing the team to focus on what matters most: **winning bids**.
 

@@ -3,7 +3,12 @@ from uuid import uuid4
 
 import pytest
 
-from scheduler import run as scheduler_run
+# The scheduler imports the Playwright-backed scrapers at module load; skip the
+# whole module where Playwright isn't installed (the CI unit-test env), while
+# still running it in the scanner image where it is.
+pytest.importorskip("playwright")
+
+from scheduler import run as scheduler_run  # noqa: E402
 
 
 class _FakeEmail:
