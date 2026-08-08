@@ -15,6 +15,7 @@ from connectors.scrape_chain import scrape_page
 from processor import FieldExtractor, TenderClassifier, Deduplicator, EligibilityChecker
 from config.keywords import SEARCH_KEYWORDS
 from notifier.slack_alert import SlackAlerter
+from notifier.teams_alert import TeamsAlerter
 from notifier.email_digest import EmailDigestSender
 from notifier.alert_rules import AlertRulesEngine
 
@@ -26,6 +27,7 @@ class ScannerOrchestrator:
         self.extractor = FieldExtractor()
         self.classifier = TenderClassifier()
         self.slack = SlackAlerter()
+        self.teams = TeamsAlerter()
         self.email = EmailDigestSender()
         self.keywords = SEARCH_KEYWORDS
 
@@ -90,88 +92,17 @@ class ScannerOrchestrator:
         logger.info(f"Total raw tenders scraped: {len(raw_tenders)}")
         
         new_tenders_today = []
-        
-        # 2. Process and Classify
+
+        # 2. Process and Classify — one bad row must never discard the batch.
         for raw in raw_tenders:
-            # Generate deduplication fingerprint
-            fingerprint = Deduplicator.generate_fingerprint(raw)
-            
-            # Check if we already processed this
-            existing = await repository.find_by_fingerprint(fingerprint)
-            if existing:
-                logger.debug(f"Skipping duplicate tender: {raw.title}")
+            try:
+                tender = await self._process_raw(raw)
+            except Exception:
+                logger.exception("Failed to process tender: %s", getattr(raw, "title", "?"))
                 continue
-                
-            # Web-discovered rows carry only a search snippet — pull the full
-            # page text via the scrape chain (Firecrawl→context.dev→Zyte) so the
-            # classifier and extractor see the real scope, not just the title.
-            doc_text = None
-            if raw.source == "WebDiscovery" or raw.source == "WebSearch":
-                if raw.url:
-                    doc_text = await asyncio.to_thread(lambda: scrape_page(raw.url)["markdown"]) or None
+            if tender is not None:
+                new_tenders_today.append(tender)
 
-            # Extract fields
-            extracted = self.extractor.extract_all(doc_text or raw.description or raw.title)
-
-            # Classify via LLM (full page text when we fetched it)
-            analysis = await self.classifier.classify(raw, document_text=doc_text)
-            
-            # Rule-based eligibility check to correct LLM
-            if analysis.eligibility_assessment:
-                analysis.eligibility_assessment = EligibilityChecker.evaluate(analysis.eligibility_assessment)
-                
-            # Create full Tender object
-            tender = Tender(
-                fingerprint=fingerprint,
-                tender_reference=raw.tender_reference or extracted.get("gem_ref") or extracted.get("cppp_ref"),
-                title=raw.title,
-                description=raw.description,
-                scope_summary=analysis.scope_summary,
-                category=raw.category,
-                product_categories=analysis.matched_categories,
-                tender_type="SITC", # Default or extract
-                value_raw=raw.value or extracted.get("value"),
-                value_inr=FieldExtractor.parse_indian_currency(raw.value or extracted.get("value")),
-                emd_amount=extracted.get("emd"),
-                tender_fee=extracted.get("fee"),
-                # deadline parsing would happen here
-                issuing_authority=raw.issuing_authority,
-                location=raw.location,
-                source_id=await repository.get_source_id(raw.source),
-                source_url=raw.url,
-                fit_classification=analysis.fit_classification,
-                confidence=analysis.confidence,
-                matched_keywords=analysis.matched_keywords,
-                matched_categories=analysis.matched_categories,
-                matching_rationale=analysis.matching_rationale,
-                eligibility_status=analysis.eligibility_assessment.eligibility_status if analysis.eligibility_assessment else None,
-                eligibility_gaps=analysis.eligibility_assessment.eligibility_gaps if analysis.eligibility_assessment else [],
-                scraped_at=datetime.utcnow()
-            )
-            
-            # Save to DB
-            tender_id = await repository.upsert_tender(tender)
-            tender.id = tender_id
-            
-            analysis.tender_id = tender_id
-            await repository.save_analysis(analysis)
-
-            if tender.fit_classification in (
-                FitLabel.STRONG_FIT,
-                FitLabel.POTENTIAL_FIT,
-            ):
-                await repository.queue_digest_tender(tender_id)
-            
-            new_tenders_today.append(tender)
-            
-            # 3. Instant Alerts
-            should_alert, reason = AlertRulesEngine.evaluate(tender)
-            if should_alert:
-                success = await self.slack.send_instant_alert(tender, reason)
-                if success:
-                    tender.instant_alert_sent = True
-                    # In a real app we'd update the DB here
-                    
         # 4. Return digest-worthy tenders for callers that need the current
         # batch. Delivery uses the durable notifications queue above so a
         # service restart or one-shot cron invocation cannot lose weekend finds.
@@ -179,6 +110,79 @@ class ScannerOrchestrator:
 
         logger.info("Daily Tender Scan Pipeline Complete (%d relevant)", len(relevant))
         return relevant
+
+    async def _process_raw(self, raw) -> Tender | None:
+        """Dedup, classify, persist, and instant-alert a single raw tender.
+
+        Returns the stored Tender, or None if it was a duplicate. Raises on
+        unexpected failure so the caller can skip just this one row.
+        """
+        fingerprint = Deduplicator.generate_fingerprint(raw)
+
+        existing = await repository.find_by_fingerprint(fingerprint)
+        if existing:
+            logger.debug(f"Skipping duplicate tender: {raw.title}")
+            return None
+
+        # Web-discovered rows carry only a search snippet — pull the full page
+        # text via the scrape chain (Firecrawl→context.dev→Zyte) so the
+        # classifier and extractor see the real scope, not just the title.
+        doc_text = None
+        if raw.source in ("WebDiscovery", "WebSearch") and raw.url:
+            doc_text = await asyncio.to_thread(lambda: scrape_page(raw.url)["markdown"]) or None
+
+        extracted = self.extractor.extract_all(doc_text or raw.description or raw.title)
+
+        # Classify via LLM (falls back to regex if no provider/credit).
+        analysis = await self.classifier.classify(raw, document_text=doc_text)
+
+        if analysis.eligibility_assessment:
+            analysis.eligibility_assessment = EligibilityChecker.evaluate(analysis.eligibility_assessment)
+
+        tender = Tender(
+            fingerprint=fingerprint,
+            tender_reference=raw.tender_reference or extracted.get("gem_ref") or extracted.get("cppp_ref"),
+            title=raw.title,
+            description=raw.description,
+            scope_summary=analysis.scope_summary,
+            category=raw.category,
+            product_categories=analysis.matched_categories,
+            tender_type="SITC",  # Default or extract
+            value_raw=raw.value or extracted.get("value"),
+            value_inr=FieldExtractor.parse_indian_currency(raw.value or extracted.get("value")),
+            emd_amount=extracted.get("emd"),
+            tender_fee=extracted.get("fee"),
+            issuing_authority=raw.issuing_authority,
+            location=raw.location,
+            source_id=await repository.get_source_id(raw.source),
+            source_url=raw.url,
+            fit_classification=analysis.fit_classification,
+            confidence=analysis.confidence,
+            matched_keywords=analysis.matched_keywords,
+            matched_categories=analysis.matched_categories,
+            matching_rationale=analysis.matching_rationale,
+            eligibility_status=analysis.eligibility_assessment.eligibility_status if analysis.eligibility_assessment else None,
+            eligibility_gaps=analysis.eligibility_assessment.eligibility_gaps if analysis.eligibility_assessment else [],
+            scraped_at=datetime.utcnow(),
+        )
+
+        tender_id = await repository.upsert_tender(tender)
+        tender.id = tender_id
+        analysis.tender_id = tender_id
+        await repository.save_analysis(analysis)
+
+        if tender.fit_classification in (FitLabel.STRONG_FIT, FitLabel.POTENTIAL_FIT):
+            await repository.queue_digest_tender(tender_id)
+
+        # 3. Instant Alerts
+        should_alert, reason = AlertRulesEngine.evaluate(tender)
+        if should_alert:
+            slack_success = await self.slack.send_instant_alert(tender, reason)
+            teams_success = await self.teams.send_instant_alert(tender, reason)
+            if slack_success or teams_success:
+                tender.instant_alert_sent = True
+
+        return tender
 
 
 if __name__ == "__main__":

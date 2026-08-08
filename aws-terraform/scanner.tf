@@ -15,8 +15,8 @@ resource "aws_ecs_task_definition" "scanner" {
   volume {
     name = "seple_sessions"
     efs_volume_configuration {
-      file_system_id          = aws_efs_file_system.main.id
-      transit_encryption      = "ENABLED"
+      file_system_id     = aws_efs_file_system.main.id
+      transit_encryption = "ENABLED"
       authorization_config {
         access_point_id = aws_efs_access_point.seple_sessions.id
       }
@@ -28,15 +28,26 @@ resource "aws_ecs_task_definition" "scanner" {
     image     = "${aws_ecr_repository.scanner.repository_url}:latest"
     essential = true
     # Run once instead of relying on internal scheduler
-    command   = ["python", "-m", "scheduler.run_once"]
+    command = ["python", "-m", "scheduler.run_once"]
     environment = [
       { name = "DATABASE_URL", value = "postgresql://postgres:${var.db_password}@${aws_db_instance.main.endpoint}/tenders" }
     ]
+    # Portal logins + scrape/LLM tool keys. Notification channels
+    # (SLACK_WEBHOOK_URL, TEAMS_WEBHOOK_URL, SMTP_*, SENDER_EMAIL,
+    # RECIPIENT_EMAILS) are intentionally NOT wired yet — the code no-ops each
+    # channel when its env is absent, so the first backfill run stays silent.
+    # Add them once the DB + dashboard are verified.
     secrets = [
       { name = "TENDER_TIGER_EMAIL", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:TENDER_TIGER_EMAIL::" },
       { name = "TENDER_TIGER_PASSWORD", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:TENDER_TIGER_PASSWORD::" },
       { name = "TENDER247_EMAIL", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:TENDER247_EMAIL::" },
-      { name = "TENDER247_PASSWORD", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:TENDER247_PASSWORD::" }
+      { name = "TENDER247_PASSWORD", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:TENDER247_PASSWORD::" },
+      { name = "OPENAI_API_KEY", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:OPENAI_API_KEY::" },
+      { name = "LLM_MODEL", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:LLM_MODEL::" },
+      { name = "FIRECRAWL_API_KEY", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:FIRECRAWL_API_KEY::" },
+      { name = "APIFY_API_TOKEN", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:APIFY_API_TOKEN::" },
+      { name = "CONTEXT_DEV_API_KEY", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:CONTEXT_DEV_API_KEY::" },
+      { name = "ZYTE_API", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:ZYTE_API::" }
     ]
     mountPoints = [{
       sourceVolume  = "seple_sessions"
@@ -81,17 +92,17 @@ resource "aws_iam_role_policy" "events_ecs_run_task" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect = "Allow"
-      Action = "ecs:RunTask"
+      Effect   = "Allow"
+      Action   = "ecs:RunTask"
       Resource = aws_ecs_task_definition.scanner.arn
-    },
-    {
-      Effect = "Allow"
-      Action = "iam:PassRole"
-      Resource = [
-        aws_iam_role.ecs_execution.arn,
-        aws_iam_role.ecs_task.arn
-      ]
+      },
+      {
+        Effect = "Allow"
+        Action = "iam:PassRole"
+        Resource = [
+          aws_iam_role.ecs_execution.arn,
+          aws_iam_role.ecs_task.arn
+        ]
     }]
   })
 }

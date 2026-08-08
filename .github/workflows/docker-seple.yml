@@ -53,6 +53,11 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          # Vite bakes this at build time; without it the dashboard queries the
+          # viewer's localhost:8000. Only the agent Dockerfile consumes it;
+          # api/scanner ignore the unused arg.
+          build-args: |
+            VITE_TENDER_API_URL=https://api.seple.in
           tags: |
             ${{ secrets.AWS_ECR_REGISTRY }}/seple-tender-prod-${{ matrix.service }}:latest
             ${{ secrets.AWS_ECR_REGISTRY }}/seple-tender-prod-${{ matrix.service }}:${{ github.sha }}
