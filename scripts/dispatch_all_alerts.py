@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from database import repository
 from database.models import Tender, FitLabel
 from notifier.slack_alert import SlackAlerter
+from notifier.teams_alert import TeamsAlerter
 from notifier.email_digest import EmailDigestSender
 from notifier.alert_rules import AlertRulesEngine
 
@@ -68,14 +69,18 @@ async def main():
     email_success = await email_sender.send_digest(digest_tenders)
     print(f"Email Digest Delivery: {'SUCCESS' if email_success else 'FAILED'}")
     
-    print(f"\n💬 Posting ONLY High Priority Tenders ({len(high_priority_tenders)}) to Slack...")
+    print(f"\n💬 Posting ONLY High Priority Tenders ({len(high_priority_tenders)}) to Slack & Teams...")
     slack_sender = SlackAlerter()
+    teams_sender = TeamsAlerter()
     slack_count = 0
+    teams_count = 0
     for t, reason in high_priority_tenders:
         if await slack_sender.send_instant_alert(t, reason):
             slack_count += 1
+        if await teams_sender.send_instant_alert(t, reason):
+            teams_count += 1
             
-    print(f"\nSlack High Priority Alerts Delivered: {slack_count} High Priority alerts posted to Slack successfully!")
+    print(f"\nHigh Priority Alerts Delivered: {slack_count} to Slack, {teams_count} to Teams successfully!")
 
 if __name__ == "__main__":
     asyncio.run(main())

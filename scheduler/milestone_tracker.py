@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from database import repository
 from database.models import Notification, NotificationType
 from notifier.slack_alert import SlackAlerter
+from notifier.teams_alert import TeamsAlerter
 from notifier.email_digest import EmailDigestSender
 
 logger = logging.getLogger(__name__)
@@ -16,6 +17,7 @@ class MilestoneTracker:
     
     def __init__(self):
         self.slack = SlackAlerter()
+        self.teams = TeamsAlerter()
         self.email = EmailDigestSender()
         
     async def run_checks(self):
@@ -60,10 +62,11 @@ class MilestoneTracker:
             source_url=milestone_data["source_url"]
         )
         
-        # Send Slack Alert
-        success = await self.slack.send_instant_alert(tender_mock, reason)
+        # Send Alerts
+        slack_success = await self.slack.send_instant_alert(tender_mock, reason)
+        teams_success = await self.teams.send_instant_alert(tender_mock, reason)
         
-        if success:
+        if slack_success or teams_success:
             await repository.mark_reminder_sent(milestone_data["id"], level)
             
             # Log it

@@ -26,6 +26,7 @@ resource "aws_secretsmanager_secret_version" "tender_secrets_initial" {
     HERMES_DASHBOARD_BASIC_AUTH_SECRET   = "random-secret-key-here"
     HERMES_DASHBOARD_TENDER_USERNAME     = "tender_user"
     HERMES_DASHBOARD_TENDER_PASSWORD     = "tender_pass"
+    TEAMS_WEBHOOK_URL                    = "placeholder"
   })
 
   lifecycle {
