@@ -44,7 +44,7 @@ resource "aws_ecs_task_definition" "scanner" {
       { name = "TENDER247_PASSWORD", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:TENDER247_PASSWORD::" },
       { name = "OPENAI_API_KEY", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:OPENAI_API_KEY::" },
       { name = "LLM_MODEL", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:LLM_MODEL::" },
-      { name = "FIRECRAWL_API_KEY", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:FIRECRAWL_API_KEY::" },
+      { name = "BRAVE_API_KEY", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:BRAVE_API_KEY::" },
       { name = "APIFY_API_TOKEN", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:APIFY_API_TOKEN::" },
       { name = "CONTEXT_DEV_API_KEY", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:CONTEXT_DEV_API_KEY::" },
       { name = "ZYTE_API", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:ZYTE_API::" }
