@@ -35,11 +35,8 @@ resource "aws_ecs_task_definition" "scanner" {
       { name = "SEARXNG_URL", value = "http://localhost:8080" }
     ]
     dependsOn = [{ containerName = "searxng", condition = "START" }]
-    # Portal logins + scrape/LLM tool keys. Notification channels
-    # (SLACK_WEBHOOK_URL, TEAMS_WEBHOOK_URL, SMTP_*, SENDER_EMAIL,
-    # RECIPIENT_EMAILS) are intentionally NOT wired yet — the code no-ops each
-    # channel when its env is absent, so the first backfill run stays silent.
-    # Add them once the DB + dashboard are verified.
+    # Portal logins + scrape/LLM tool keys + notification channels. Each
+    # notifier no-ops if its env is absent, so unset keys are harmless.
     secrets = [
       { name = "TENDER_TIGER_EMAIL", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:TENDER_TIGER_EMAIL::" },
       { name = "TENDER_TIGER_PASSWORD", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:TENDER_TIGER_PASSWORD::" },
@@ -50,7 +47,15 @@ resource "aws_ecs_task_definition" "scanner" {
       { name = "BRAVE_API_KEY", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:BRAVE_API_KEY::" },
       { name = "APIFY_API_TOKEN", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:APIFY_API_TOKEN::" },
       { name = "CONTEXT_DEV_API_KEY", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:CONTEXT_DEV_API_KEY::" },
-      { name = "ZYTE_API", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:ZYTE_API::" }
+      { name = "ZYTE_API", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:ZYTE_API::" },
+      { name = "SLACK_WEBHOOK_URL", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:SLACK_WEBHOOK_URL::" },
+      { name = "TEAMS_WEBHOOK_URL", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:TEAMS_WEBHOOK_URL::" },
+      { name = "SMTP_SERVER", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:SMTP_SERVER::" },
+      { name = "SMTP_PORT", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:SMTP_PORT::" },
+      { name = "SMTP_USER", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:SMTP_USER::" },
+      { name = "SMTP_PASS", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:SMTP_PASS::" },
+      { name = "SENDER_EMAIL", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:SENDER_EMAIL::" },
+      { name = "RECIPIENT_EMAILS", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:RECIPIENT_EMAILS::" }
     ]
     mountPoints = [{
       sourceVolume  = "seple_sessions"
