@@ -45,7 +45,7 @@ class TenderClassifier:
             self.model = self.model or "claude-sonnet-5"
         elif os.getenv("OPENAI_API_KEY"):
             self.provider, self.api_key = "openai", os.getenv("OPENAI_API_KEY")
-            self.model = self.model or "gpt-4.1"
+            self.model = "gpt-4o" if (not self.model or "luna" in self.model or "5.6" in self.model) else self.model
         self.system_prompt = self._load_skill()
 
     def _load_skill(self) -> str:

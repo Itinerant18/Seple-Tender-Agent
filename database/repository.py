@@ -475,12 +475,12 @@ async def queue_digest_tender(tender_id: UUID) -> Optional[UUID]:
             INSERT INTO notifications (
                 tender_id, channel, notification_type, status
             )
-            SELECT $1, 'email', $2, 'pending'
+            SELECT $1::uuid, 'email', $2::text, 'pending'
             WHERE NOT EXISTS (
                 SELECT 1
                 FROM notifications
-                WHERE tender_id = $1
-                  AND notification_type = $2
+                WHERE tender_id = $1::uuid
+                  AND notification_type = $2::text
             )
             RETURNING id
             """,
