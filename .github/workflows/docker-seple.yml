@@ -25,6 +25,8 @@ jobs:
             service: api
           - dockerfile: Dockerfile.scanner
             service: scanner
+          - dockerfile: Dockerfile.searxng
+            service: searxng
     runs-on: ubuntu-latest
     permissions:
       contents: read

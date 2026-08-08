@@ -7,8 +7,8 @@ resource "aws_ecs_task_definition" "scanner" {
   family                   = "${local.name_prefix}-scanner"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = 1024
-  memory                   = 2048 # Scrapers with Playwright often need more memory
+  cpu                      = 2048
+  memory                   = 4096 # Playwright scrapers + SearXNG sidecar
   execution_role_arn       = aws_iam_role.ecs_execution.arn
   task_role_arn            = aws_iam_role.ecs_task.arn
 
@@ -30,8 +30,11 @@ resource "aws_ecs_task_definition" "scanner" {
     # Run once instead of relying on internal scheduler
     command = ["python", "-m", "scheduler.run_once"]
     environment = [
-      { name = "DATABASE_URL", value = "postgresql://postgres:${var.db_password}@${aws_db_instance.main.endpoint}/tenders" }
+      { name = "DATABASE_URL", value = "postgresql://postgres:${var.db_password}@${aws_db_instance.main.endpoint}/tenders" },
+      # SearXNG runs as a sidecar in this task — reachable over localhost.
+      { name = "SEARXNG_URL", value = "http://localhost:8080" }
     ]
+    dependsOn = [{ containerName = "searxng", condition = "START" }]
     # Portal logins + scrape/LLM tool keys. Notification channels
     # (SLACK_WEBHOOK_URL, TEAMS_WEBHOOK_URL, SMTP_*, SENDER_EMAIL,
     # RECIPIENT_EMAILS) are intentionally NOT wired yet — the code no-ops each
@@ -61,6 +64,22 @@ resource "aws_ecs_task_definition" "scanner" {
         "awslogs-stream-prefix" = "scanner"
       }
     }
+    },
+    {
+      # Free self-hosted search for web_discovery, alongside Brave. Only alive
+      # for the duration of the daily scan task, so cost is negligible.
+      name         = "searxng"
+      image        = "${aws_ecr_repository.searxng.repository_url}:latest"
+      essential    = false
+      portMappings = [{ containerPort = 8080 }]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.scanner.name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "searxng"
+        }
+      }
   }])
 }
 

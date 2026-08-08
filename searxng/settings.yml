@@ -1,0 +1,18 @@
+# SearXNG settings for the Seple scanner sidecar.
+# Runs only inside the scanner task, reachable at localhost:8080 — never
+# exposed to the internet, so the secret_key value is not sensitive.
+use_default_settings: true
+
+server:
+  secret_key: "seple-searxng-sidecar-local"
+  # We call SearXNG programmatically from the same task; the bot limiter would
+  # otherwise block our own JSON requests.
+  limiter: false
+  image_proxy: false
+
+search:
+  # Enable the JSON API the web_discovery connector consumes (default is html only).
+  formats:
+    - html
+    - json
+  safe_search: 0

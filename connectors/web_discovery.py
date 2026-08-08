@@ -40,12 +40,13 @@ class WebDiscoveryConnector:
     source_name = "WebSearch"
 
     def __init__(self):
-        self.api_key = os.getenv("BRAVE_API_KEY")
-        if not self.api_key:
-            logger.warning("BRAVE_API_KEY not set — web discovery disabled")
+        self.brave_key = os.getenv("BRAVE_API_KEY")
+        self.searxng_url = (os.getenv("SEARXNG_URL") or "").rstrip("/")
+        if not self.brave_key and not self.searxng_url:
+            logger.warning("Neither BRAVE_API_KEY nor SEARXNG_URL set — web discovery disabled")
 
     async def scrape_tenders(self, keywords: list = None, days_back: int = 1) -> list[RawTender]:
-        if not self.api_key:
+        if not self.brave_key and not self.searxng_url:
             return []
         # A focused subset — searching all 54 keywords would blow the free-tier
         # quota. The high-signal core categories catch the tenders worth it.
@@ -57,47 +58,68 @@ class WebDiscoveryConnector:
     def _search_all(self, keywords: list) -> list[RawTender]:
         tenders: list[RawTender] = []
         seen = set()
-        headers = {
-            "Accept": "application/json",
-            "X-Subscription-Token": self.api_key,
-        }
         with httpx.Client(timeout=20) as client:
             for kw in keywords:
                 # one query template per keyword keeps the free-tier spend bounded
                 query = _QUERY_TEMPLATES[0].format(kw=kw)
-                try:
-                    resp = client.get(
-                        _BRAVE_ENDPOINT,
-                        headers=headers,
-                        params={"q": query, "count": 10, "country": "IN"},
-                    )
-                    resp.raise_for_status()
-                    for item in _iter_web_results(resp.json()):
-                        url = item.get("url")
-                        title = (item.get("title") or "").strip()
-                        if not url or url in seen or not title:
-                            continue
-                        seen.add(url)
-                        tenders.append(RawTender(
-                            title=title[:300],
-                            description=(item.get("description") or "")[:1000] or None,
-                            url=url,
-                            source=self.source_name,
-                            search_term=kw,
-                            scraped_at=datetime.utcnow().isoformat(),
-                        ))
-                except Exception as e:
-                    logger.warning(f"web discovery search '{query}' failed: {e}")
-                # Brave free tier allows 1 request/second.
-                time.sleep(1.1)
+                # Union of both engines — redundancy if one is rate-limited/down.
+                items = []
+                if self.searxng_url:
+                    items += self._search_searxng(client, query)
+                if self.brave_key:
+                    items += self._search_brave(client, query)
+                    time.sleep(1.1)  # Brave free tier allows 1 request/second
+                for item in items:
+                    url = item.get("url")
+                    title = (item.get("title") or "").strip()
+                    if not url or url in seen or not title:
+                        continue
+                    seen.add(url)
+                    tenders.append(RawTender(
+                        title=title[:300],
+                        description=(item.get("description") or "")[:1000] or None,
+                        url=url,
+                        source=self.source_name,
+                        search_term=kw,
+                        scraped_at=datetime.utcnow().isoformat(),
+                    ))
         logger.info(f"Web discovery found {len(tenders)} candidate pages")
         return tenders
+
+    def _search_brave(self, client: "httpx.Client", query: str) -> list[dict]:
+        try:
+            resp = client.get(
+                _BRAVE_ENDPOINT,
+                headers={"Accept": "application/json", "X-Subscription-Token": self.brave_key},
+                params={"q": query, "count": 10, "country": "IN"},
+            )
+            resp.raise_for_status()
+            return _iter_brave_results(resp.json())
+        except Exception as e:
+            logger.warning(f"Brave search '{query}' failed: {e}")
+            return []
+
+    def _search_searxng(self, client: "httpx.Client", query: str) -> list[dict]:
+        try:
+            resp = client.get(
+                f"{self.searxng_url}/search",
+                params={"q": query, "format": "json", "language": "en", "safesearch": 0},
+            )
+            resp.raise_for_status()
+            return [
+                {"url": r.get("url"), "title": r.get("title"), "description": r.get("content")}
+                for r in (resp.json().get("results") or [])
+                if isinstance(r, dict)
+            ]
+        except Exception as e:
+            logger.warning(f"SearXNG search '{query}' failed: {e}")
+            return []
 
     async def close(self):
         pass
 
 
-def _iter_web_results(payload: dict) -> list[dict]:
+def _iter_brave_results(payload: dict) -> list[dict]:
     """Normalise a Brave web-search response → [{url,title,description}].
 
     Brave returns {"web": {"results": [{"url","title","description"}, ...]}}.

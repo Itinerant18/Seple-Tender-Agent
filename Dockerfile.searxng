@@ -1,0 +1,6 @@
+# SearXNG search engine — runs as a sidecar in the scanner task so open-web
+# tender discovery has a free, self-hosted search source alongside Brave.
+# Only the baked settings.yml differs from upstream (enables the JSON API).
+FROM searxng/searxng:latest
+
+COPY searxng/settings.yml /etc/searxng/settings.yml

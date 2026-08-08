@@ -65,6 +65,10 @@ resource "aws_ecr_repository" "scanner" {
   name = "${local.name_prefix}-scanner"
 }
 
+resource "aws_ecr_repository" "searxng" {
+  name = "${local.name_prefix}-searxng"
+}
+
 # CloudWatch Log Groups
 resource "aws_cloudwatch_log_group" "api" {
   name              = "/ecs/${local.name_prefix}-api"
@@ -143,8 +147,8 @@ resource "aws_ecs_task_definition" "agent" {
   volume {
     name = "hermes_data"
     efs_volume_configuration {
-      file_system_id          = aws_efs_file_system.main.id
-      transit_encryption      = "ENABLED"
+      file_system_id     = aws_efs_file_system.main.id
+      transit_encryption = "ENABLED"
       authorization_config {
         access_point_id = aws_efs_access_point.hermes_data.id
       }
@@ -171,7 +175,8 @@ resource "aws_ecs_task_definition" "agent" {
       { name = "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:HERMES_DASHBOARD_BASIC_AUTH_PASSWORD::" },
       { name = "HERMES_DASHBOARD_BASIC_AUTH_SECRET", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:HERMES_DASHBOARD_BASIC_AUTH_SECRET::" },
       { name = "HERMES_DASHBOARD_TENDER_USERNAME", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:HERMES_DASHBOARD_TENDER_USERNAME::" },
-      { name = "HERMES_DASHBOARD_TENDER_PASSWORD", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:HERMES_DASHBOARD_TENDER_PASSWORD::" }
+      { name = "HERMES_DASHBOARD_TENDER_PASSWORD", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:HERMES_DASHBOARD_TENDER_PASSWORD::" },
+      { name = "TEAMS_WEBHOOK_URL", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:TEAMS_WEBHOOK_URL::" }
     ]
     mountPoints = [{
       sourceVolume  = "hermes_data"
