@@ -1,15 +1,15 @@
 {
   "version": 1,
-  "updated_at": "2026-07-15T04:51:12Z",
+  "updated_at": "2026-08-08T10:15:00Z",
   "metadata": {
     "source": "hermes-agent repo",
-    "docs": "https://hermes-agent.Novaedge.com/docs/reference/model-catalog"
+    "docs": "https://hermes-agent.nousresearch.com/docs/reference/model-catalog"
   },
   "providers": {
     "openrouter": {
       "metadata": {
         "display_name": "OpenRouter",
-        "note": "Descriptions drive picker badges. Live /api/v1/models filters curated ids by tool-calling support and free pricing. The entry labeled \"default\": true is the model Seple T Agent silently lands on when the user never picked one."
+        "note": "Descriptions drive picker badges. Live /api/v1/models filters curated ids by tool-calling support and free pricing. The entry labeled \"default\": true is the model Hermes silently lands on when the user never picked one."
       },
       "models": [
         {
@@ -178,7 +178,7 @@
     "nous": {
       "metadata": {
         "display_name": "Nous Portal",
-        "note": "Free-tier gating is determined live via Portal pricing (partition_nous_models_by_tier), not this manifest. The entry labeled \"default\": true is the model Seple T Agent silently lands on when the user never picked one."
+        "note": "Free-tier gating is determined live via Portal pricing (partition_nous_models_by_tier), not this manifest. The entry labeled \"default\": true is the model Hermes silently lands on when the user never picked one."
       },
       "models": [
         {
