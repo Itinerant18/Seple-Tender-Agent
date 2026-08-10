@@ -200,6 +200,11 @@ resource "aws_ecs_service" "agent" {
   desired_count   = 1
   launch_type     = "FARGATE"
 
+  # The Hermes gateway does a lot of s6 init (skills sync, chromium check)
+  # before it binds :9119 — without a grace period the ALB marks the task
+  # unhealthy and kills it mid-boot.
+  health_check_grace_period_seconds = 180
+
   network_configuration {
     subnets         = aws_subnet.private[*].id
     security_groups = [aws_security_group.ecs.id]
