@@ -75,6 +75,17 @@ class ScannerOrchestrator:
             logger.error(f"CPPP scan failed: {e}")
             await repository.complete_scrape_run(cppp_run, error=str(e))
 
+        # GeM (Apify actor — Government e-Marketplace, no login)
+        gem_run = await repository.start_scrape_run("GeM", self.keywords)
+        gem_connector = GeMConnector()
+        try:
+            gem_tenders = await gem_connector.scrape_tenders(self.keywords)
+            raw_tenders.extend(gem_tenders)
+            await repository.complete_scrape_run(gem_run, tenders_found=len(gem_tenders))
+        except Exception as e:
+            logger.error(f"GeM scan failed: {e}")
+            await repository.complete_scrape_run(gem_run, error=str(e))
+
         # Open-web discovery (Firecrawl search — dept/PSU/bank/newspaper sites
         # the aggregators miss, PRD §5). Recall-first; dedup drops overlaps.
         ws_run = await repository.start_scrape_run("WebSearch", self.keywords)
