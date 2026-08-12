@@ -30,75 +30,55 @@ class ScannerOrchestrator:
         self.teams = TeamsAlerter()
         self.email = EmailDigestSender()
         self.keywords = SEARCH_KEYWORDS
+        # SCAN_SOURCES=GeM,Tender247 limits the run to those sources. Empty (the
+        # default) scans everything. TenderTiger alone returns ~2700 raw rows,
+        # each costing an LLM classification call, so a targeted re-scan of one
+        # source is otherwise unaffordable.
+        selected = os.getenv("SCAN_SOURCES", "").strip()
+        self.sources = {s.strip().lower() for s in selected.split(",") if s.strip()}
+
+    def _enabled(self, source: str) -> bool:
+        if not self.sources:
+            return True
+        if source.lower() in self.sources:
+            return True
+        logger.info("Skipping %s (not in SCAN_SOURCES)", source)
+        return False
 
     async def run_daily_scan(self):
         """Run the full daily scan pipeline. Returns relevant (digest-worthy) tenders."""
         logger.info("Starting Daily Tender Scan Pipeline")
-        
-        # 1. Scrape Tenders
+
+        # 1. Scrape Tenders. Each source is isolated: one failing scraper is
+        # recorded on its own scrape run and never aborts the others.
         raw_tenders = []
-        
-        # TenderTiger
-        tt_run = await repository.start_scrape_run("TenderTiger", self.keywords)
-        tt_connector = TenderTigerConnector()
-        try:
-            tt_tenders = await tt_connector.scrape_tenders(self.keywords)
-            raw_tenders.extend(tt_tenders)
-            await repository.complete_scrape_run(tt_run, tenders_found=len(tt_tenders))
-        except Exception as e:
-            logger.error(f"TenderTiger scan failed: {e}")
-            await repository.complete_scrape_run(tt_run, error=str(e))
-        finally:
-            await tt_connector.close()
-            
-        # Tender247
-        t247_run = await repository.start_scrape_run("Tender247", self.keywords)
-        t247_connector = Tender247Connector()
-        try:
-            t247_tenders = await t247_connector.scrape_tenders(self.keywords)
-            raw_tenders.extend(t247_tenders)
-            await repository.complete_scrape_run(t247_run, tenders_found=len(t247_tenders))
-        except Exception as e:
-            logger.error(f"Tender247 scan failed: {e}")
-            await repository.complete_scrape_run(t247_run, error=str(e))
-        finally:
-            await t247_connector.close()
-            
-        # CPPP (Apify actor — no login, also covers state/defence portals)
-        cppp_run = await repository.start_scrape_run("CPPP", self.keywords)
-        cppp_connector = CPPPConnector()
-        try:
-            cppp_tenders = await cppp_connector.scrape_tenders(self.keywords)
-            raw_tenders.extend(cppp_tenders)
-            await repository.complete_scrape_run(cppp_run, tenders_found=len(cppp_tenders))
-        except Exception as e:
-            logger.error(f"CPPP scan failed: {e}")
-            await repository.complete_scrape_run(cppp_run, error=str(e))
 
-        # GeM (Apify actor — Government e-Marketplace, no login)
-        gem_run = await repository.start_scrape_run("GeM", self.keywords)
-        gem_connector = GeMConnector()
-        try:
-            gem_tenders = await gem_connector.scrape_tenders(self.keywords)
-            raw_tenders.extend(gem_tenders)
-            await repository.complete_scrape_run(gem_run, tenders_found=len(gem_tenders))
-        except Exception as e:
-            logger.error(f"GeM scan failed: {e}")
-            await repository.complete_scrape_run(gem_run, error=str(e))
+        connectors = (
+            ("TenderTiger", TenderTigerConnector),
+            ("Tender247", Tender247Connector),
+            # CPPP: Apify actor — no login, also covers state/defence portals
+            ("CPPP", CPPPConnector),
+            # GeM: direct Playwright scrape of bidplus.gem.gov.in, no login
+            ("GeM", GeMConnector),
+            # Open-web discovery — dept/PSU/bank/newspaper sites the
+            # aggregators miss (PRD §5). Recall-first; dedup drops overlaps.
+            ("WebSearch", WebDiscoveryConnector),
+        )
 
-        # Open-web discovery (Firecrawl search — dept/PSU/bank/newspaper sites
-        # the aggregators miss, PRD §5). Recall-first; dedup drops overlaps.
-        ws_run = await repository.start_scrape_run("WebSearch", self.keywords)
-        ws_connector = WebDiscoveryConnector()
-        try:
-            ws_tenders = await ws_connector.scrape_tenders(self.keywords)
-            raw_tenders.extend(ws_tenders)
-            await repository.complete_scrape_run(ws_run, tenders_found=len(ws_tenders))
-        except Exception as e:
-            logger.error(f"Web discovery failed: {e}")
-            await repository.complete_scrape_run(ws_run, error=str(e))
-        finally:
-            await ws_connector.close()
+        for name, factory in connectors:
+            if not self._enabled(name):
+                continue
+            run_id = await repository.start_scrape_run(name, self.keywords)
+            connector = factory()
+            try:
+                found = await connector.scrape_tenders(self.keywords)
+                raw_tenders.extend(found)
+                await repository.complete_scrape_run(run_id, tenders_found=len(found))
+            except Exception as e:
+                logger.error("%s scan failed: %s", name, e)
+                await repository.complete_scrape_run(run_id, error=str(e))
+            finally:
+                await connector.close()
 
         logger.info(f"Total raw tenders scraped: {len(raw_tenders)}")
         
@@ -130,8 +110,20 @@ class ScannerOrchestrator:
         """
         fingerprint = Deduplicator.generate_fingerprint(raw)
 
+        deadline = FieldExtractor.parse_datetime(raw.deadline)
+        if raw.deadline and deadline is None:
+            # A silently dropped deadline is what let alerts fire on closed
+            # tenders — surface the raw text so the format can be added.
+            logger.warning("Unparsed %s deadline: %r", raw.source, raw.deadline)
+
         existing = await repository.find_by_fingerprint(fingerprint)
         if existing:
+            await repository.patch_missing_fields(
+                fingerprint,
+                deadline=deadline,
+                category=raw.category,
+                location=raw.location,
+            )
             logger.debug(f"Skipping duplicate tender: {raw.title}")
             return None
 
@@ -156,13 +148,15 @@ class ScannerOrchestrator:
             title=raw.title,
             description=raw.description,
             scope_summary=analysis.scope_summary,
-            category=raw.category,
+            category=raw.category or (analysis.matched_categories[0] if analysis.matched_categories else None),
             product_categories=analysis.matched_categories,
             tender_type="SITC",  # Default or extract
             value_raw=raw.value or extracted.get("value"),
             value_inr=FieldExtractor.parse_indian_currency(raw.value or extracted.get("value")),
             emd_amount=extracted.get("emd"),
             tender_fee=extracted.get("fee"),
+            deadline=deadline,
+            publication_date=FieldExtractor.parse_date(raw.publication_date),
             issuing_authority=raw.issuing_authority,
             location=raw.location,
             source_id=await repository.get_source_id(raw.source),
