@@ -60,6 +60,20 @@ _FIELD_PATTERNS = {
     "end_date": re.compile(r"End Date:\s*(.+?)$", re.I | re.S),
 }
 
+# CPPP mirrors the whole GeM bid corpus at this URL, paginated 10 rows/page
+# with a plain GET (?page=N) and no captcha — only its keyword search is
+# captcha-gated. The bidplus search above returns just the first page per
+# term, so this lifts that ceiling. Same bids, so dedup by bid number.
+MIRROR_URL = "https://eprocure.gov.in/cppp/latestactivetendersnew/gemdata"
+
+# Broader than GEM_SEARCH_TERMS: mirror rows are filtered locally, not by the
+# portal, so recall matters more than query cost.
+MIRROR_TOKENS = tuple(GEM_SEARCH_TERMS) + (
+    "alarm", "extinguisher", "surveillance", "guard", "manpower", "fighting",
+    "nvr", "dvr", "intrusion", "hydrant", "sprinkler", "suppression",
+    "turnstile", "rfid", "baggage", "smoke", "bms",
+)
+
 _EXTRACT_JS = """els => els.map(e => {
     const link = e.querySelector('a.bid_no_hover');
     return {
@@ -102,6 +116,59 @@ def _to_raw_tender(card: dict) -> RawTender | None:
         source=GeMConnector.source_name,
         scraped_at=datetime.utcnow().isoformat(),
     )
+
+
+def _mirror_row_to_tender(cells: list[str], url: str | None) -> RawTender | None:
+    """Build a RawTender from one CPPP mirror row, or None if it isn't a bid.
+
+    Columns: Sl.No | Bid Start | Bid End | Bid Number/Quantity | Product
+    Category | Organisation | Department.
+    """
+    if len(cells) < 7 or "GEM/" not in cells[3]:
+        return None
+    if not any(token in f"{cells[4]} {cells[5]} {cells[6]}".lower() for token in MIRROR_TOKENS):
+        return None
+
+    bid = cells[3].rsplit("/", 1)[0] if cells[3].count("/") > 3 else cells[3]
+    authority = " — ".join(part for part in (cells[5], cells[6]) if part)
+    return RawTender(
+        title=(cells[4] or bid)[:300],
+        description=" | ".join(part for part in (cells[4], cells[5], cells[6]) if part) or None,
+        tender_reference=bid,
+        deadline=cells[2] or None,
+        publication_date=cells[1] or None,
+        issuing_authority=authority or None,
+        category=cells[4] or None,
+        url=url or MIRROR_URL,
+        source=GeMConnector.source_name,
+        scraped_at=datetime.utcnow().isoformat(),
+    )
+
+
+def _scrape_mirror(pages: int) -> List[RawTender]:
+    """Page the CPPP GeM mirror over plain HTTP — no browser, no captcha."""
+    import httpx
+    from bs4 import BeautifulSoup
+
+    out: List[RawTender] = []
+    with httpx.Client(timeout=45, headers={"User-Agent": "Mozilla/5.0"}, follow_redirects=True) as client:
+        for page in range(pages):
+            try:
+                resp = client.get(MIRROR_URL if page == 0 else f"{MIRROR_URL}?page={page}")
+                resp.raise_for_status()
+            except Exception as e:
+                logger.warning("GeM mirror page %d failed: %s", page, e)
+                continue
+            for tr in BeautifulSoup(resp.text, "html.parser").select("tr"):
+                tds = tr.select("td")
+                link = tr.select_one("a[href]")
+                tender = _mirror_row_to_tender(
+                    [td.get_text(" ", strip=True) for td in tds],
+                    link.get("href") if link else None,
+                )
+                if tender:
+                    out.append(tender)
+    return out
 
 
 class GeMConnector:
@@ -155,6 +222,12 @@ class GeMConnector:
                     if tender and tender.tender_reference not in found:
                         found[tender.tender_reference] = tender
                 logger.info("GeM '%s': %d cards, %d unique so far", term, len(cards), len(found))
+
+            # Top up from the CPPP mirror, which reaches past the first page
+            # the portal search returns. ponytail: 40 pages (~400 rows) keeps
+            # the run short; raise it if daily coverage proves thin.
+            for tender in await asyncio.to_thread(_scrape_mirror, 40):
+                found.setdefault(tender.tender_reference, tender)
 
             tenders = list(found.values())[:max_results]
             logger.info("GeM returned %d tenders", len(tenders))

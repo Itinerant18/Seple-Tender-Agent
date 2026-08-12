@@ -60,3 +60,36 @@ def test_missing_dates_do_not_raise():
 
     assert tender.deadline is None
     assert tender.title == "Fire pump"
+
+
+_mirror_row_to_tender = gem_direct_module._mirror_row_to_tender
+
+# Verbatim row from the CPPP GeM mirror (captured 12-08-2026).
+MIRROR_ROW = [
+    "3.", "29-Jun-2026 11:34 AM", "13-Aug-2026 12:00 PM",
+    "GEM/2026/B/7646952/1",
+    "HD IP High Capability day night surveillance camera,16 Channel NVR",
+    "Prasar Bharati Broadcasting Corporation",
+    "Ministry of Information and Broadcasting",
+]
+
+
+def test_mirror_row_parses_and_splits_quantity_off_the_bid_number():
+    tender = _mirror_row_to_tender(MIRROR_ROW, "/cppp/tenderdetail/1")
+
+    assert tender.tender_reference == "GEM/2026/B/7646952"  # trailing quantity dropped
+    assert tender.deadline == "13-Aug-2026 12:00 PM"
+    assert tender.publication_date == "29-Jun-2026 11:34 AM"
+    assert "Prasar Bharati" in tender.issuing_authority
+    assert tender.source == "GeM"
+
+
+def test_mirror_row_without_a_matching_token_is_dropped():
+    row = list(MIRROR_ROW)
+    row[4], row[5], row[6] = "Tyres and batteries", "Some Org", "Some Dept"
+
+    assert _mirror_row_to_tender(row, None) is None
+
+
+def test_mirror_ignores_non_bid_rows():
+    assert _mirror_row_to_tender(["header", "row"], None) is None
