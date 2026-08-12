@@ -125,9 +125,13 @@ class TenderTigerConnector(BaseConnector):
     async def scrape_tenders(self, keywords: List[str] = None, days_back: int = 1) -> List[RawTender]:
         """Search TenderTiger through the dashboard UI (deep-linking the listing URL is WAF-blocked)."""
         if not self.is_logged_in and not await self.login():
-            return []
+            # Raise rather than return []: daily_scan isolates each source and
+            # records the reason on its scrape run, so a blocked login shows up
+            # as a failure instead of looking like "no matching tenders".
+            raise RuntimeError("TenderTiger login failed — check credentials or the WAF")
 
         tenders = []
+        failures: List[str] = []
         for keyword in (keywords or ["security"]):
             try:
                 logger.info(f"TenderTiger search: '{keyword}'")
@@ -141,11 +145,16 @@ class TenderTigerConnector(BaseConnector):
                 # site navigates to /TenderAI/TenderAIList?searchtext=<kw>-tenders
                 await self.page.wait_for_selector("li.tender-listing", timeout=45000)
                 if await self._waf_blocked():
-                    break
+                    raise RuntimeError(f"TenderTiger WAF blocked the search for '{keyword}'")
                 tenders.extend(await self._extract_rows(keyword))
                 await asyncio.sleep(2)  # respectful delay between searches
             except Exception as e:
+                # One keyword failing is tolerable; every keyword failing means
+                # the source is down, not that nothing matched.
                 logger.error(f"TenderTiger search '{keyword}' failed: {e}")
+                failures.append(str(e))
+        if failures and not tenders:
+            raise RuntimeError(f"TenderTiger returned nothing; first error: {failures[0]}")
         logger.info(f"Scraped {len(tenders)} raw tenders from TenderTiger")
         return tenders
 
