@@ -37,6 +37,7 @@ apscheduler==3.11.3
 
 # Data
 pydantic==2.12.5  # browser-use 0.13.6 hard-pins this exact version
+python-dateutil==2.9.0.post0  # portals render deadlines in a dozen formats
 
 # Hermes inference router (agent.auxiliary_client.call_llm) needs PyYAML to read
 # config.yaml; openai/anthropic SDKs already ship in the base image.

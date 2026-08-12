@@ -4,9 +4,14 @@ Extracts structured fields from raw tender text using regex and heuristics.
 """
 import re
 import logging
+from datetime import date, datetime
 from typing import Dict, Any, Optional
 
+from dateutil import parser as date_parser
+
 logger = logging.getLogger(__name__)
+
+YEAR_PATTERN = re.compile(r"(19|20)\d{2}")
 
 class FieldExtractor:
     """Extracts standard fields (EMD, Value, Dates) from raw text."""
@@ -71,3 +76,40 @@ class FieldExtractor:
             return float(clean) * multiplier
         except ValueError:
             return None
+
+    @staticmethod
+    def parse_datetime(text: str) -> Optional[datetime]:
+        """Parse tender portal date text into a naive datetime.
+
+        Each portal renders dates differently ("16-08-2026 05:45 PM",
+        "Due Date : 16 Aug 2026", ISO from GeM), so this defers to dateutil
+        with dayfirst=True for Indian ordering. A 4-digit year is required
+        because dateutil would otherwise read a bare number or a stray label
+        as today's date.
+        """
+        if not text:
+            return None
+
+        clean = str(text).strip()
+        if not clean or not YEAR_PATTERN.search(clean):
+            return None
+
+        # ISO first: dayfirst=True would read GeM's "2026-08-11" as 8 November.
+        try:
+            return datetime.fromisoformat(clean.replace("Z", "+00:00")).replace(tzinfo=None)
+        except ValueError:
+            pass
+
+        try:
+            parsed = date_parser.parse(clean, dayfirst=True, fuzzy=True)
+        except (ValueError, OverflowError):
+            logger.debug("Unparsed date string: %r", clean)
+            return None
+
+        return parsed.replace(tzinfo=None)
+
+    @staticmethod
+    def parse_date(text: str) -> Optional[date]:
+        """Parse common tender portal date formats into dates."""
+        parsed = FieldExtractor.parse_datetime(text)
+        return parsed.date() if parsed else None
