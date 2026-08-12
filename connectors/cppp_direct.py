@@ -63,8 +63,11 @@ class CPPPConnector:
             logger.info(f"CPPP returned {len(tenders)} tenders")
             return tenders
         except Exception as e:
+            # Raise, don't swallow: daily_scan wraps each source separately and
+            # records the reason on the scrape run. Returning [] here made an
+            # exhausted Apify quota look identical to "no matching tenders".
             logger.error(f"Apify CPPP error: {e}")
-            return []
+            raise
 
     async def close(self):
         pass

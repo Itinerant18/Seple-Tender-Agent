@@ -103,7 +103,10 @@ class Tender247Connector(BaseConnector):
             # 2. Fresh login via homepage modal
             await self.page.goto(self.base_url, wait_until="domcontentloaded")
             await asyncio.sleep(6)
-            await self.page.get_by_role("button", name="Sign Up/Log In").first.click()
+            # Header button is "Log in" (verified live 11-08-2026). The mobile
+            # menu holds a hidden "Sign Up / Log in" duplicate — matching that
+            # one waits forever for visibility, so keep this match exact.
+            await self.page.get_by_role("button", name="Log in", exact=True).first.click()
             await asyncio.sleep(3)
             await self.page.fill("input[name='emailId']", self.email)
             await self.page.fill("input[type='password']", self.password)
@@ -129,7 +132,8 @@ class Tender247Connector(BaseConnector):
         """Query the subscription feed via the JSON API — one call per keyword,
         plus one unfiltered call so nothing in the daily feed is missed (PRD §6.5)."""
         if not self.is_logged_in and not await self.login():
-            return []
+            # Surfaces on the scrape run instead of reading as an empty feed.
+            raise RuntimeError("Tender247 login failed — check credentials or the login markup")
 
         # make sure we're on an /auth page so localStorage + relative fetch work
         if "/auth/" not in self.page.url:
