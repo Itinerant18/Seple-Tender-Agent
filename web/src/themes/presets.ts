@@ -207,6 +207,63 @@ export const nousBlueTheme: DashboardTheme = {
   swatchColors: ["#170d02", "#0053FD", "#E8F2FD"],
 };
 
+export const steelBlueTheme: DashboardTheme = {
+  name: "steel-blue",
+  label: "Steel Blue",
+  description:
+    "Corporate light mode with cool steel-blue backgrounds",
+
+  palette: {
+    background: { hex: "#F0F4F8", alpha: 1 },
+    midground: { hex: "#1A2332", alpha: 1 },
+    foreground: { hex: "#2563EB", alpha: 1 },
+    warmGlow: "rgba(37, 99, 235, 0.08)",
+    noiseOpacity: 0,
+  },
+
+  typography: DEFAULT_TYPOGRAPHY,
+  layout: DEFAULT_LAYOUT,
+
+  terminalBackground: "#E8EEF4",
+  terminalForeground: "#1A2332",
+
+  seriesColors: {
+    inputTokenAccent: "#2563EB",
+    outputTokenAccent: "#1D4ED8",
+  },
+
+  swatchColors: ["#F0F4F8", "#1A2332", "rgba(37, 99, 235, 0.08)"],
+};
+
+export const classicLightTheme: DashboardTheme = {
+  name: "classic-light",
+  label: "Classic Light",
+  description:
+    "Neutral light mode — pure white background, dark text",
+
+  palette: {
+    background: { hex: "#FFFFFF", alpha: 1 },
+    midground: { hex: "#202122", alpha: 1 },
+    foreground: { hex: "#3366CC", alpha: 1 },
+
+    warmGlow: "rgba(51, 102, 204, 0.08)",
+    noiseOpacity: 0,
+  },
+
+  typography: DEFAULT_TYPOGRAPHY,
+  layout: DEFAULT_LAYOUT,
+
+  terminalBackground: "#F6F8FA",
+  terminalForeground: "#202122",
+
+  seriesColors: {
+    inputTokenAccent: "#3366CC",
+    outputTokenAccent: "#1F4F9C",
+  },
+
+  swatchColors: ["#FFFFFF", "#202122", "rgba(51, 102, 204, 0.08)"],
+};
+
 /**
  * Same look as ``defaultTheme`` but with a larger root font size, looser
  * line-height, and ``spacious`` density so every rem-based size in the
@@ -231,6 +288,8 @@ export const defaultLargeTheme: DashboardTheme = {
 export const BUILTIN_THEMES: Record<string, DashboardTheme> = {
   default: defaultTheme,
   "default-large": defaultLargeTheme,
+  "classic-light": classicLightTheme,
+  "steel-blue": steelBlueTheme,
   "nous-blue": nousBlueTheme,
   midnight: midnightTheme,
   ember: emberTheme,
