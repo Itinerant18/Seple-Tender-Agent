@@ -7,7 +7,6 @@ from .tender_tiger import TenderTigerConnector
 from .tender247 import Tender247Connector
 from .email_parser import EmailParserConnector
 from .gem_direct import GeMConnector
-from .cppp_direct import CPPPConnector
 from .web_discovery import WebDiscoveryConnector
 
 __all__ = [
@@ -16,6 +15,5 @@ __all__ = [
     "Tender247Connector",
     "EmailParserConnector",
     "GeMConnector",
-    "CPPPConnector",
     "WebDiscoveryConnector"
 ]

@@ -639,12 +639,15 @@ async def get_stats() -> dict:
         # Latest run per source. Without this a scraper that failed (expired
         # quota, changed login markup) is indistinguishable in the UI from a
         # source that simply had no matching tenders.
+        # Active sources only, so a retired one (CPPP) drops out of the strip
+        # immediately rather than showing its last result forever.
         source_runs = await conn.fetch(
             """
-            SELECT DISTINCT ON (source_name)
-                   source_name, status, tenders_found, error_message, completed_at
-            FROM scrape_runs
-            ORDER BY source_name, started_at DESC
+            SELECT DISTINCT ON (r.source_name)
+                   r.source_name, r.status, r.tenders_found, r.error_message, r.completed_at
+            FROM scrape_runs r
+            JOIN sources s ON s.name = r.source_name AND s.is_active
+            ORDER BY r.source_name, r.started_at DESC
             """
         )
 

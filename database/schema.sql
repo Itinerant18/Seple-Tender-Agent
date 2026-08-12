@@ -229,6 +229,10 @@ INSERT INTO sources (name, base_url) VALUES
     ('TenderTiger', 'https://www.tendertiger.com'),
     ('Tender247', 'https://www.tender247.com'),
     ('GeM', 'https://gem.gov.in'),
-    ('CPPP', 'https://eprocure.gov.in'),
     ('WebSearch', 'https://www.google.com')
 ON CONFLICT (name) DO NOTHING;
+
+-- CPPP is retired: eprocure.gov.in gates both its tender listing and its login
+-- behind a captcha, so it cannot be scraped. Kept as an inactive row rather
+-- than deleted, because historical scrape_runs still reference it.
+UPDATE sources SET is_active = false WHERE name = 'CPPP';

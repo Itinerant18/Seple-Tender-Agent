@@ -52,7 +52,7 @@ type Stats = {
 };
 
 const FITS = ["", "strong_fit", "potential_fit", "low_fit"] as const;
-const SOURCES = ["", "TenderTiger", "Tender247", "CPPP", "GeM"] as const;
+const SOURCES = ["", "TenderTiger", "Tender247", "GeM", "WebSearch"] as const;
 
 const FIT_LABEL: Record<string, string> = {
   strong_fit: "Strong Fit",

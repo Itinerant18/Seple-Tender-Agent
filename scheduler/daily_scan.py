@@ -10,7 +10,7 @@ from datetime import datetime
 
 from database import repository
 from database.models import Tender, FitLabel, Notification, NotificationType
-from connectors import TenderTigerConnector, Tender247Connector, GeMConnector, CPPPConnector, WebDiscoveryConnector
+from connectors import TenderTigerConnector, Tender247Connector, GeMConnector, WebDiscoveryConnector
 from connectors.scrape_chain import scrape_page
 from processor import FieldExtractor, TenderClassifier, Deduplicator, EligibilityChecker
 from config.keywords import SEARCH_KEYWORDS
@@ -56,8 +56,6 @@ class ScannerOrchestrator:
         connectors = (
             ("TenderTiger", TenderTigerConnector),
             ("Tender247", Tender247Connector),
-            # CPPP: Apify actor — no login, also covers state/defence portals
-            ("CPPP", CPPPConnector),
             # GeM: direct Playwright scrape of bidplus.gem.gov.in, no login
             ("GeM", GeMConnector),
             # Open-web discovery — dept/PSU/bank/newspaper sites the

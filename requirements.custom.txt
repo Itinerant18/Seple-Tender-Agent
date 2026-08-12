@@ -7,9 +7,6 @@ playwright==1.61.0
 # Firecrawl (client code written against 4.x API)
 firecrawl-py==4.32.1
 
-# Apify (client code written against 3.x Run objects)
-apify-client==3.1.0
-
 # Browser-use (AI browser control — ships its own LLM clients, no langchain needed)
 browser-use==0.13.6
 

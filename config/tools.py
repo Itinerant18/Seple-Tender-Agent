@@ -33,19 +33,6 @@ class FirecrawlConfig:
         self.formats = ["markdown", "links"]
 
 @dataclass
-class ApifyConfig:
-    api_token: str = os.getenv("APIFY_API_TOKEN", "")
-    # Pre-built actors for Indian tender portals
-    actors: dict = None
-
-    def __post_init__(self):
-        self.actors = {
-            "gem_portal": "krawlify/gem-portal-scraper",
-            # verified live 22-07-2026; covers CPPP + IOCL + state + defence portals
-            "cppp_portal": "jungle_synthesizer/india-eprocure-tender-scraper",
-        }
-
-@dataclass
 class BrowserUseConfig:
     # AI-driven browser control — fallback only
     # Uses your existing LLM key
@@ -58,5 +45,4 @@ class BrowserUseConfig:
 # Singleton instances
 playwright_config = PlaywrightConfig()
 firecrawl_config = FirecrawlConfig()
-apify_config = ApifyConfig()
 browser_use_config = BrowserUseConfig()
