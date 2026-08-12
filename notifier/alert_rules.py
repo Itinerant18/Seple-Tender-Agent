@@ -31,22 +31,41 @@ class AlertRulesEngine:
     HIGH_VALUE_THRESHOLD = 50_00_000  # 50 Lakh
     SHORT_DEADLINE_DAYS = 5
     
+    @staticmethod
+    def _is_expired(deadline: Optional[datetime]) -> bool:
+        """Deadlines arrive naive from the scraper and tz-aware from Postgres
+        (TIMESTAMP WITH TIME ZONE), so pick a matching 'now' for each."""
+        if not deadline:
+            return False
+        now = datetime.now(deadline.tzinfo) if deadline.tzinfo else datetime.now()
+        return deadline < now
+
     @classmethod
     def evaluate(cls, tender: Tender) -> tuple[bool, Optional[str]]:
         """
         Evaluate if a tender should trigger an instant alert.
         Returns (should_alert, reason)
         """
+        if cls._is_expired(tender.deadline):
+            return False, None
+
         reasons = []
+        has_core = any(cat in cls.CORE_CATEGORIES for cat in tender.product_categories)
         
         # Rule 1: Strong Fit in Core Category
         if tender.fit_classification == FitLabel.STRONG_FIT:
-            has_core = any(cat in cls.CORE_CATEGORIES for cat in tender.product_categories)
             if has_core:
                 reasons.append("Strong Fit in Core Category")
                 
-        # Rule 2: High Value
-        if tender.value_inr and tender.value_inr >= cls.HIGH_VALUE_THRESHOLD:
+        # Rule 2: High Value, scoped to core categories or relevant fits.
+        if (
+            tender.value_inr
+            and tender.value_inr >= cls.HIGH_VALUE_THRESHOLD
+            and (
+                has_core
+                or tender.fit_classification in (FitLabel.STRONG_FIT, FitLabel.POTENTIAL_FIT)
+            )
+        ):
             reasons.append(f"High Value (≥ ₹{cls.HIGH_VALUE_THRESHOLD/100000} Lakh)")
             
         # Rule 3: Strategic Customer

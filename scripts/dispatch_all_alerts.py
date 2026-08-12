@@ -13,7 +13,7 @@ import logging
 from dotenv import load_dotenv
 
 from database import repository
-from database.models import Tender, FitLabel
+from database.models import Tender
 from notifier.slack_alert import SlackAlerter
 from notifier.teams_alert import TeamsAlerter
 from notifier.email_digest import EmailDigestSender
@@ -45,8 +45,9 @@ async def main():
                 location=d.get("location"),
                 value_inr=d.get("value_inr"),
                 value_raw=d.get("value_raw"),
+                deadline=d.get("deadline"),
                 source_url=d.get("source_url"),
-                fit_classification=d.get("fit_classification") or FitLabel.STRONG_FIT,
+                fit_classification=d.get("fit_classification"),
                 product_categories=d.get("product_categories") or ["General Security / SITC"],
                 matching_rationale=d.get("matching_rationale") or "Matched platform search criteria"
             )
@@ -65,7 +66,7 @@ async def main():
     
     print(f"\n📧 Sending Email Digest for relevant tenders...")
     email_sender = EmailDigestSender()
-    digest_tenders = [t for t, _ in high_priority_tenders] if high_priority_tenders else tenders[:10]
+    digest_tenders = [t for t, _ in high_priority_tenders]
     email_success = await email_sender.send_digest(digest_tenders)
     print(f"Email Digest Delivery: {'SUCCESS' if email_success else 'FAILED'}")
     
