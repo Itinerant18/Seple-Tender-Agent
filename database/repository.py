@@ -63,13 +63,14 @@ async def upsert_tender(tender: Tender) -> UUID:
                     title = $2, description = $3, tender_reference = $4,
                     value_raw = $5, value_inr = $6, deadline = $7,
                     issuing_authority = $8, location = $9, source_url = $10,
+                    category = COALESCE($11, category),
                     updated_at = NOW()
                 WHERE id = $1
                 """,
                 tender_id, tender.title, tender.description,
                 tender.tender_reference, tender.value_raw, tender.value_inr,
                 tender.deadline, tender.issuing_authority, tender.location,
-                tender.source_url,
+                tender.source_url, tender.category,
             )
             await _audit(conn, "update_tender", "tender", tender_id,
                          {"fingerprint": tender.fingerprint, "title": tender.title})
@@ -126,7 +127,26 @@ async def upsert_tender(tender: Tender) -> UUID:
 async def get_tender(tender_id: UUID) -> Optional[dict]:
     """Get a single tender by ID."""
     async with get_connection() as conn:
-        row = await conn.fetchrow("SELECT * FROM tenders WHERE id = $1", tender_id)
+        row = await conn.fetchrow(
+            """
+            SELECT t.*, s.name AS source_name,
+                   latest.analysis_model,
+                   latest.uncertainty_notes,
+                   latest.confidence AS analysis_confidence,
+                   latest.analyzed_at
+            FROM tenders t
+            LEFT JOIN sources s ON t.source_id = s.id
+            LEFT JOIN LATERAL (
+                SELECT analysis_model, uncertainty_notes, confidence, analyzed_at
+                FROM tender_analysis
+                WHERE tender_id = t.id
+                ORDER BY analyzed_at DESC
+                LIMIT 1
+            ) latest ON TRUE
+            WHERE t.id = $1
+            """,
+            tender_id,
+        )
         return dict(row) if row else None
 
 
@@ -139,12 +159,51 @@ async def find_by_fingerprint(fingerprint: str) -> Optional[dict]:
         return dict(row) if row else None
 
 
+async def patch_missing_fields(
+    fingerprint: str,
+    deadline: Optional[datetime] = None,
+    category: Optional[str] = None,
+    location: Optional[str] = None,
+) -> bool:
+    """Fill nullable scrape fields for an existing tender without overwriting.
+
+    Parameters carry explicit casts: `$2 IS NOT NULL` alone gives Postgres
+    nothing to infer from, and asyncpg fails to prepare the statement.
+    """
+    async with get_connection() as conn:
+        result = await conn.execute(
+            """
+            UPDATE tenders
+            SET deadline = COALESCE(deadline, $2::timestamptz),
+                category = COALESCE(category, $3::text),
+                location = COALESCE(location, $4::text),
+                updated_at = CASE
+                    WHEN (deadline IS NULL AND $2::timestamptz IS NOT NULL)
+                      OR (category IS NULL AND $3::text IS NOT NULL)
+                      OR (location IS NULL AND $4::text IS NOT NULL)
+                    THEN NOW()
+                    ELSE updated_at
+                END
+            WHERE fingerprint = $1
+              AND ((deadline IS NULL AND $2::timestamptz IS NOT NULL)
+                OR (category IS NULL AND $3::text IS NOT NULL)
+                OR (location IS NULL AND $4::text IS NOT NULL))
+            """,
+            fingerprint,
+            deadline,
+            category,
+            location,
+        )
+        return result.endswith(" 1")
+
+
 async def list_tenders(
     status: Optional[TenderStatus] = None,
     fit: Optional[FitLabel] = None,
     source_name: Optional[str] = None,
     category: Optional[str] = None,
     min_value: Optional[float] = None,
+    q: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict]:
@@ -173,6 +232,19 @@ async def list_tenders(
         conditions.append(f"t.value_inr >= ${idx}")
         params.append(min_value)
         idx += 1
+    if q:
+        conditions.append(
+            f"""
+            (
+                to_tsvector('english', coalesce(t.title, '') || ' ' || coalesce(t.description, '')) @@ websearch_to_tsquery('english', ${idx})
+                OR t.issuing_authority ILIKE ${idx + 1}
+                OR t.category ILIKE ${idx + 1}
+            )
+            """
+        )
+        params.append(q)
+        params.append(f"%{q}%")
+        idx += 2
 
     where_clause = " AND ".join(conditions) if conditions else "TRUE"
     params.extend([limit, offset])
@@ -492,6 +564,19 @@ async def queue_digest_tender(tender_id: UUID) -> Optional[UUID]:
 async def list_pending_digest_tenders() -> list[dict]:
     """Return queued digest notifications joined to their tender payloads."""
     async with get_connection() as conn:
+        await conn.execute(
+            """
+            UPDATE notifications n
+            SET status = 'expired', error_message = 'Tender deadline has passed'
+            FROM tenders t
+            WHERE t.id = n.tender_id
+              AND n.notification_type = $1
+              AND n.status = 'pending'
+              AND t.deadline IS NOT NULL
+              AND t.deadline < NOW()
+            """,
+            NotificationType.DAILY_DIGEST.value,
+        )
         rows = await conn.fetch(
             """
             SELECT n.id AS digest_notification_id, t.*
@@ -499,6 +584,7 @@ async def list_pending_digest_tenders() -> list[dict]:
             JOIN tenders t ON t.id = n.tender_id
             WHERE n.notification_type = $1
               AND n.status = 'pending'
+              AND (t.deadline IS NULL OR t.deadline >= NOW())
             ORDER BY n.created_at ASC, n.id ASC
             """,
             NotificationType.DAILY_DIGEST.value,
@@ -550,6 +636,17 @@ async def get_stats() -> dict:
               AND milestone_date <= NOW() + INTERVAL '7 days'
             """
         )
+        # Latest run per source. Without this a scraper that failed (expired
+        # quota, changed login markup) is indistinguishable in the UI from a
+        # source that simply had no matching tenders.
+        source_runs = await conn.fetch(
+            """
+            SELECT DISTINCT ON (source_name)
+                   source_name, status, tenders_found, error_message, completed_at
+            FROM scrape_runs
+            ORDER BY source_name, started_at DESC
+            """
+        )
 
         return {
             "total_tenders": total or 0,
@@ -562,4 +659,14 @@ async def get_stats() -> dict:
                 "source": last_run["source_name"] if last_run else None,
             } if last_run else None,
             "upcoming_milestones_7d": upcoming or 0,
+            "source_status": [
+                {
+                    "source": r["source_name"],
+                    "status": r["status"],
+                    "tenders_found": r["tenders_found"] or 0,
+                    "error": r["error_message"],
+                    "completed_at": r["completed_at"].isoformat() if r["completed_at"] else None,
+                }
+                for r in source_runs
+            ],
         }

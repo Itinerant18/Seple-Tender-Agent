@@ -63,6 +63,7 @@ async def get_tenders(
     source: Optional[str] = None,
     category: Optional[str] = None,
     min_value: Optional[float] = None,
+    q: Optional[str] = Query(None, max_length=200),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0)
 ):
@@ -73,6 +74,7 @@ async def get_tenders(
         source_name=source,
         category=category,
         min_value=min_value,
+        q=q,
         limit=limit,
         offset=offset
     )

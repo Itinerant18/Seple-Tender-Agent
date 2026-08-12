@@ -19,6 +19,8 @@ SEPLE T AGENT is not just a scraper; it is a cognitive assistant that understand
 *   **Deep Document Analysis**: Automatically parses complex NITs, Technical Specifications, and BOQs to extract mandatory eligibility, turnover requirements, and MAF needs.
 *   **Closed Learning Loop**: Learns from human feedback (Relevant / Pursued / Won) to refine its classification logic over time, building a deepening model of the company's strategic interests.
 
+Fit labels are produced by the processing pipeline's LLM classifier using the criteria in [Tender Intelligence Skill](./skills/tender-intelligence/SKILL.md). When the LLM is unavailable, the platform records `analysis_model='fallback-regex'` so those non-LLM classifications are visible in the dashboard and can be reviewed by a human.
+
 ## 🏗️ Technical Architecture
 
 The system is built on a modular, high-performance stack designed for reliability and scale:
