@@ -16224,9 +16224,14 @@ def mount_spa(application: FastAPI):
 
 # Built-in dashboard themes — label + description only.  The actual color
 # definitions live in the frontend (web/src/themes/presets.ts).
+# Names, labels and descriptions must match web/src/themes/presets.ts — this
+# list is what the API serves, and the picker replaces its built-in seed with
+# the API response, so a theme missing here never reaches the dropdown.
 _BUILTIN_DASHBOARD_THEMES = [
-    {"name": "default",       "label": "Hermes Teal",         "description": "Classic dark teal — the canonical Hermes look"},
-    {"name": "default-large", "label": "Hermes Teal (Large)", "description": "Hermes Teal with bigger fonts and roomier spacing"},
+    {"name": "default",       "label": "Seple T Agent Teal",         "description": "Classic dark teal — the canonical Seple T Agent look"},
+    {"name": "default-large", "label": "Seple T Agent Teal (Large)", "description": "Seple T Agent Teal with bigger fonts and roomier spacing"},
+    {"name": "classic-light", "label": "Classic Light",       "description": "Neutral light mode — pure white background, dark text"},
+    {"name": "steel-blue",    "label": "Steel Blue",          "description": "Corporate light mode with cool steel-blue backgrounds"},
     {"name": "nous-blue",     "label": "Nous Blue",           "description": "Light mode — vivid Nous-blue accents on cream canvas"},
     {"name": "midnight",      "label": "Midnight",            "description": "Deep blue-violet with cool accents"},
     {"name": "ember",     "label": "Ember",          "description": "Warm crimson and bronze — forge vibes"},
