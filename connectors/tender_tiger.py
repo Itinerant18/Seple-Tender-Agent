@@ -79,6 +79,17 @@ class TenderTigerConnector(BaseConnector):
             return True
         return False
 
+    @staticmethod
+    def _is_logged_in_url(url: str) -> bool:
+        """Logged-in pages live under /Dashboard.
+
+        Checking only that the URL isn't /User/Account is not proof of a
+        session: an expired session redirects to the public homepage, which
+        passed that test and made login() report success while every later
+        search timed out on a search box that only exists logged in.
+        """
+        return "/Dashboard" in (url or "")
+
     async def login(self) -> bool:
         """Authenticate with TenderTiger, reusing a persisted session when possible."""
         if not self.email or not self.password:
@@ -91,7 +102,7 @@ class TenderTigerConnector(BaseConnector):
             # 1. Try the persisted session first — avoids fresh logins that trip the WAF
             if self.session_file.exists():
                 await self._goto(f"{self.base_url}/Dashboard/Dashboard")
-                if "/User/Account" not in self.page.url and not await self._waf_blocked():
+                if self._is_logged_in_url(self.page.url) and not await self._waf_blocked():
                     self.is_logged_in = True
                     logger.info("TenderTiger session restored from storage_state")
                     return True
@@ -109,7 +120,7 @@ class TenderTigerConnector(BaseConnector):
             except Exception:
                 pass  # URL check below decides
 
-            if "/User/Account" not in self.page.url:
+            if self._is_logged_in_url(self.page.url):
                 self.is_logged_in = True
                 self.session_file.parent.mkdir(parents=True, exist_ok=True)
                 await self.context.storage_state(path=str(self.session_file))
