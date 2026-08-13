@@ -19,6 +19,7 @@ import logging
 import asyncio
 from pathlib import Path
 from typing import List, Optional
+from urllib.parse import unquote, urlsplit, urlunsplit
 from datetime import datetime
 from playwright.async_api import async_playwright, Page, BrowserContext
 from database.models import RawTender, TenderDocument
@@ -69,30 +70,49 @@ class Tender247Connector(BaseConnector):
 
         tender247.com drops packets from cloud egress IPs: from AWS every
         goto() times out, while the same URL returns 200 from an office
-        connection. Zyte reaches it from that same subnet, so on Fargate we
-        route through Zyte; locally we go direct and spend no credits.
-        AWS_EXECUTION_ENV is set by Fargate itself, so this needs no secret
-        and no task-definition change. SCRAPER_PROXY overrides either way.
+        connection.
+
+        Off by default, including on AWS. Zyte proxy mode was tried
+        (13-08-2026): pages load, but the login modal never opens — Zyte
+        rotates the exit IP between requests, so the SPA's follow-up calls
+        arrive from a different address and the DOM is torn down. Making that
+        work needs sticky sessions, and it costs credits per run either way.
+        Set SCRAPER_PROXY only with a proxy that holds one IP for a session.
         """
-        override = os.getenv("SCRAPER_PROXY")
-        if override:
-            return override
-        key = os.getenv("ZYTE_API")
-        if key and os.getenv("AWS_EXECUTION_ENV", "").startswith("AWS_ECS"):
-            return f"http://{key}:@api.zyte.com:8011"
-        return None
+        return os.getenv("SCRAPER_PROXY")
+
+    @classmethod
+    def _proxy_launch_args(cls) -> Optional[dict]:
+        """Playwright proxy config, credentials split out of the URL.
+
+        Chromium ignores user:pass embedded in a proxy URL — the proxy then
+        answers 407 and every navigation hangs until it times out. Playwright
+        wants them as separate username/password fields.
+        """
+        url = cls._proxy_server()
+        if not url:
+            return None
+        parsed = urlsplit(url)
+        server = urlunsplit((parsed.scheme, parsed.hostname or "", "", "", ""))
+        if parsed.port:
+            server = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
+        config = {"server": server}
+        if parsed.username:
+            config["username"] = unquote(parsed.username)
+            config["password"] = unquote(parsed.password or "")
+        return config
 
     async def _init_browser(self):
         if self.playwright:
             return
         self.playwright = await async_playwright().start()
-        proxy = self._proxy_server()
+        proxy = self._proxy_launch_args()
         if proxy:
-            logger.info("Tender247 browser using proxy egress")
+            logger.info("Tender247 browser using proxy egress (%s)", proxy["server"])
         self.browser = await self.playwright.chromium.launch(
             headless=playwright_config.headless,
             slow_mo=playwright_config.slow_mo,
-            proxy={"server": proxy} if proxy else None,
+            proxy=proxy,
         )
         major = self.browser.version.split(".")[0]
         ua = (
@@ -101,9 +121,18 @@ class Tender247Connector(BaseConnector):
             f"Chrome/{major}.0.0.0 Safari/537.36"
         )
         storage = str(self.session_file) if self.session_file.exists() else None
-        self.context = await self.browser.new_context(user_agent=ua, storage_state=storage)
+        # Zyte terminates TLS with its own CA, so certificate checks fail
+        # through the proxy; and a proxied page load is far slower than a
+        # direct one, which blew the default 30s navigation timeout.
+        self.context = await self.browser.new_context(
+            user_agent=ua,
+            storage_state=storage,
+            ignore_https_errors=bool(proxy),
+        )
         self.page = await self.context.new_page()
-        self.page.set_default_timeout(playwright_config.timeout)
+        timeout = 120_000 if proxy else playwright_config.timeout
+        self.page.set_default_timeout(timeout)
+        self.page.set_default_navigation_timeout(timeout)
 
     async def login(self) -> bool:
         """Authenticate with Tender247, reusing the persisted session when possible."""
