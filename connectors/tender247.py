@@ -67,9 +67,16 @@ class Tender247Connector(BaseConnector):
         if self.playwright:
             return
         self.playwright = await async_playwright().start()
+        # tender247.com drops packets from cloud egress IPs — from AWS every
+        # goto() times out while the same request succeeds from an office
+        # connection. SCRAPER_PROXY routes the browser out through a proxy
+        # (verified 13-08-2026 with Zyte: http://<ZYTE_API>:@api.zyte.com:8011).
+        # Unset locally, so dev runs go direct and burn no proxy credits.
+        proxy = os.getenv("SCRAPER_PROXY")
         self.browser = await self.playwright.chromium.launch(
             headless=playwright_config.headless,
             slow_mo=playwright_config.slow_mo,
+            proxy={"server": proxy} if proxy else None,
         )
         major = self.browser.version.split(".")[0]
         ua = (
