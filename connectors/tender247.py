@@ -63,16 +63,32 @@ class Tender247Connector(BaseConnector):
         self.page: Optional[Page] = None
         self.session_file = Path(playwright_config.session_dir) / "tender247_state.json"
 
+    @staticmethod
+    def _proxy_server() -> Optional[str]:
+        """Proxy for the browser, or None to connect directly.
+
+        tender247.com drops packets from cloud egress IPs: from AWS every
+        goto() times out, while the same URL returns 200 from an office
+        connection. Zyte reaches it from that same subnet, so on Fargate we
+        route through Zyte; locally we go direct and spend no credits.
+        AWS_EXECUTION_ENV is set by Fargate itself, so this needs no secret
+        and no task-definition change. SCRAPER_PROXY overrides either way.
+        """
+        override = os.getenv("SCRAPER_PROXY")
+        if override:
+            return override
+        key = os.getenv("ZYTE_API")
+        if key and os.getenv("AWS_EXECUTION_ENV", "").startswith("AWS_ECS"):
+            return f"http://{key}:@api.zyte.com:8011"
+        return None
+
     async def _init_browser(self):
         if self.playwright:
             return
         self.playwright = await async_playwright().start()
-        # tender247.com drops packets from cloud egress IPs — from AWS every
-        # goto() times out while the same request succeeds from an office
-        # connection. SCRAPER_PROXY routes the browser out through a proxy
-        # (verified 13-08-2026 with Zyte: http://<ZYTE_API>:@api.zyte.com:8011).
-        # Unset locally, so dev runs go direct and burn no proxy credits.
-        proxy = os.getenv("SCRAPER_PROXY")
+        proxy = self._proxy_server()
+        if proxy:
+            logger.info("Tender247 browser using proxy egress")
         self.browser = await self.playwright.chromium.launch(
             headless=playwright_config.headless,
             slow_mo=playwright_config.slow_mo,
