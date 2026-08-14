@@ -250,9 +250,9 @@ export default function TendersPage() {
           <Spinner />
         </div>
       ) : (
-        <div className="border-border overflow-x-auto rounded-md border">
+        <div className="border-border overflow-x-auto overflow-y-scroll h-screen rounded-md border">
           <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-text-tertiary text-left">
+            <thead className="bg-muted/50 text-text-tertiary text-left sticky top-0">
               <tr>
                 <th className="w-8 p-2 font-medium"></th>
                 <th className="p-2 font-medium">Fit</th>
