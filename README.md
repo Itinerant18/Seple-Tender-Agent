@@ -42,22 +42,66 @@ The system is built on a modular, high-performance stack designed for reliabilit
 
 ## ⚙️ Configuration & Deployment
 
-### Strategic Environment
-The system is designed to run in isolated, high-security environments, leveraging encrypted secrets for portal access:
-```bash
-# Core Intelligence Configuration
-DATABASE_URL=postgresql://...
-TENDER_API_URL=http://tender-api:8000
+### 1. Environment Setup
+Copy `.env.example` to `.env` before running Docker Compose (`.env` is gitignored, so a fresh clone has none and compose will fail without it):
 
-# Portal Access (Managed via Secrets Vault)
-TENDER_TIGER_CREDENTIALS=...
-TENDER_247_API_KEY=...
+```bash
+cp .env.example .env      # then fill it in — see below
 ```
 
-### Deployment
-SEPLE T AGENT supports containerized deployment for maximum uptime and scalability across cloud and local infrastructure.
+Minimum variables to fill in inside `.env`:
+* **`OPENAI_API_KEY`**: Required for LLM classification (classification won't run without it).
+* **`DB_PASSWORD`**: Postgres database password.
+* **`HERMES_DASHBOARD_BASIC_AUTH_USERNAME` & `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD`**: Mandatory dashboard authentication credentials.
+* **`TENDER247_EMAIL` / `TENDER247_PASSWORD` & `TENDER_TIGER_EMAIL` / `TENDER_TIGER_PASSWORD`**: Credentials for Tender247 and TenderTiger sources (GeM requires no credentials).
 
-**Windows (native):** run `scripts/install.ps1` in PowerShell for a Docker-free local setup.
+### 2. Starting Services
+Start the core infrastructure and web services:
+
+```bash
+docker compose up -d --build db tender-api hermes
+```
+
+Once services are up:
+* **Dashboard / Tenders Page**: http://localhost:9119 (Basic auth using `HERMES_DASHBOARD_BASIC_AUTH_USERNAME` / `PASSWORD`)
+* **Tender API**: http://localhost:8000/api/tenders (`/docs` for Swagger UI)
+* **PostgreSQL Database**: `localhost:5432` (`postgres` / `$DB_PASSWORD`, database `tenders` — schema auto-loads on first start)
+
+### 3. Running Scans & Database Population
+
+The database starts empty, so the Tenders page will display "No tenders" until a scan runs.
+
+> [!NOTE]
+> `tender-scanner` is deliberately left out of the initial `up` command. It has `RUN_ON_STARTUP=true`, so running `docker compose up -d` with no service list starts a full scan immediately — TenderTiger alone returns ~2700 tenders, each costing a `gpt-4o` call, and fires real Teams/Slack/email alerts to the team.
+
+#### Dev / Testing Scan
+For a fresh dev box, run an explicit scan:
+
+```bash
+docker compose run --rm -e SCAN_SOURCES=GeM,Tender247 tender-scanner python -m scheduler.run_once
+```
+
+To keep notifications off while testing, add blank webhook/SMTP overrides:
+
+```bash
+docker compose run --rm -e SCAN_SOURCES=GeM,Tender247 -e SLACK_WEBHOOK_URL= -e TEAMS_WEBHOOK_URL= -e SMTP_USER= -e SMTP_PASS= tender-scanner python -m scheduler.run_once
+```
+
+#### Production Daily Scans
+For daily automated scans in production, start the `tender-scanner` container:
+
+```bash
+docker compose up -d tender-scanner
+```
+
+This scans daily at `SCAN_HOUR` and sends out the digest.
+
+### 4. Useful Commands
+* **Check service status**: `docker compose ps`
+* **Tail API logs**: `docker compose logs -f tender-api`
+* **Stop services**: `docker compose down` (add `-v` to also wipe the database)
+
+**Windows (native alternative):** run `scripts/install.ps1` in PowerShell for a Docker-free local setup.
 
 ## 📜 Strategic Mandate
 SEPLE T AGENT operates as a **Decision Support System**. It empowers human experts by removing the cognitive load of searching and filtering, allowing the team to focus on what matters most: **winning bids**.
