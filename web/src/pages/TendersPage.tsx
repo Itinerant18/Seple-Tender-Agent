@@ -252,7 +252,7 @@ export default function TendersPage() {
       ) : (
         <div className="border-border overflow-x-auto overflow-y-scroll h-screen rounded-md border">
           <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-text-tertiary text-left sticky top-0">
+            <thead className="bg-muted/100 text-text-tertiary text-left sticky top-0">
               <tr>
                 <th className="w-8 p-2 font-medium"></th>
                 <th className="p-2 font-medium">Fit</th>
