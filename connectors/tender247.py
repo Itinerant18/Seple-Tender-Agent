@@ -170,10 +170,11 @@ class Tender247Connector(BaseConnector):
             await email_box.fill(self.email)
             await self.page.fill("input[type='password']", self.password)
             await self.page.get_by_role("button", name="SUBMIT").first.click()
+            redirected = True
             try:
                 await self.page.wait_for_url("**/auth/**", timeout=90_000)
             except Exception:
-                pass
+                redirected = False
 
             if "/auth/" in self.page.url:
                 self.is_logged_in = True
@@ -181,7 +182,22 @@ class Tender247Connector(BaseConnector):
                 await self.context.storage_state(path=str(self.session_file))
                 logger.info("Successfully logged into Tender247 (session persisted)")
                 return True
-            logger.error("Failed to login to Tender247. Check credentials.")
+
+            # Report what happened, not a guess. This used to read "Check
+            # credentials.", which is what a redirect that merely ran slow looks
+            # like — and it cost a day chasing rotated passwords and an IP
+            # whitelist while the credentials were correct all along (19-08-2026).
+            # A rejected login leaves us on the homepage with an error in the
+            # modal; a slow one just never redirects in time.
+            reason = (
+                "no redirect within 90s" if not redirected
+                else f"landed on {self.page.url}"
+            )
+            logger.error(
+                "Failed to login to Tender247 (%s). Credentials are only one "
+                "possible cause — check the login duration in this log before "
+                "assuming they are wrong.", reason
+            )
             return False
         except Exception as e:
             logger.error(f"Error during Tender247 login: {e}")
