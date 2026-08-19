@@ -154,17 +154,24 @@ class Tender247Connector(BaseConnector):
 
             # 2. Fresh login via homepage modal
             await self.page.goto(self.base_url, wait_until="domcontentloaded")
-            await asyncio.sleep(6)
+            # Wait on the elements, not the clock. Fixed sleeps of 6s + 3s plus a
+            # 25s wait_for_url totalled 34s, and on 19-08-2026 the login needed
+            # more than that: the run was logged as "check credentials" while the
+            # credentials, the network and the markup were all fine.
+            #
             # Header button is "Log in" (verified live 11-08-2026). The mobile
             # menu holds a hidden "Sign Up / Log in" duplicate — matching that
             # one waits forever for visibility, so keep this match exact.
-            await self.page.get_by_role("button", name="Log in", exact=True).first.click()
-            await asyncio.sleep(3)
-            await self.page.fill("input[name='emailId']", self.email)
+            login_button = self.page.get_by_role("button", name="Log in", exact=True).first
+            await login_button.wait_for(state="visible", timeout=60_000)
+            await login_button.click()
+            email_box = self.page.locator("input[name='emailId']")
+            await email_box.wait_for(state="visible", timeout=30_000)
+            await email_box.fill(self.email)
             await self.page.fill("input[type='password']", self.password)
             await self.page.get_by_role("button", name="SUBMIT").first.click()
             try:
-                await self.page.wait_for_url("**/auth/**", timeout=25000)
+                await self.page.wait_for_url("**/auth/**", timeout=90_000)
             except Exception:
                 pass
 
