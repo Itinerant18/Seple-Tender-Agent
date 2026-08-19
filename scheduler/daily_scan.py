@@ -30,6 +30,8 @@ class ScannerOrchestrator:
         self.teams = TeamsAlerter()
         self.email = EmailDigestSender()
         self.keywords = SEARCH_KEYWORDS
+        # Reset per run; defined here so _process_raw works when called directly.
+        self._web_gate_drops = 0
         # SCAN_SOURCES=GeM,Tender247 limits the run to those sources. Empty (the
         # default) scans everything. TenderTiger alone returns ~2700 raw rows,
         # each costing an LLM classification call, so a targeted re-scan of one
@@ -81,6 +83,7 @@ class ScannerOrchestrator:
         logger.info(f"Total raw tenders scraped: {len(raw_tenders)}")
         
         new_tenders_today = []
+        self._web_gate_drops = 0
 
         # 2. Process and Classify — one bad row must never discard the batch.
         for raw in raw_tenders:
@@ -91,6 +94,23 @@ class ScannerOrchestrator:
                 continue
             if tender is not None:
                 new_tenders_today.append(tender)
+
+        # The web gate can legitimately reject every candidate, and a source that
+        # quietly stores nothing has already cost this project days of
+        # misdiagnosis. Say so out loud.
+        web_found = sum(1 for r in raw_tenders if r.source in ("WebDiscovery", "WebSearch"))
+        if web_found and self._web_gate_drops >= web_found:
+            logger.warning(
+                "WebSearch: all %d candidates were dropped for having no deadline "
+                "and no tender reference. If this repeats, suspect the scrape chain "
+                "failing to read the pages rather than the pages being listings.",
+                web_found,
+            )
+        elif self._web_gate_drops:
+            logger.info(
+                "WebSearch: %d of %d candidates dropped by the deadline gate",
+                self._web_gate_drops, web_found,
+            )
 
         # 4. Return digest-worthy tenders for callers that need the current
         # batch. Delivery uses the durable notifications queue above so a
@@ -149,6 +169,7 @@ class ScannerOrchestrator:
         if raw.source in ("WebDiscovery", "WebSearch") and deadline is None and not (
             raw.tender_reference or extracted.get("gem_ref") or extracted.get("cppp_ref")
         ):
+            self._web_gate_drops += 1
             logger.info(
                 "Dropping web result with no deadline and no tender reference: %s",
                 raw.url,
