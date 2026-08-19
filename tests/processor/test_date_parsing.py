@@ -46,8 +46,9 @@ def test_parse_date_uses_datetime_parser():
 # whatever the page states in prose. Every WebSearch row stored a NULL before this
 # pattern existed.
 
-from processor.extractor import FieldExtractor as _FE
-
+# Reuse the module already loaded by path above: importing `processor.extractor`
+# runs processor/__init__.py, which pulls pdfplumber and is not installed in CI.
+_FE = FieldExtractor
 _extract = _FE()
 
 

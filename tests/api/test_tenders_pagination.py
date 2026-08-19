@@ -8,6 +8,9 @@ import asyncio
 
 import pytest
 
+# api.main imports scheduler.daily_scan, which imports every connector.
+pytest.importorskip("playwright")
+
 from api import main
 
 

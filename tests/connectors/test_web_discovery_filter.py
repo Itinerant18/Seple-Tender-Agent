@@ -6,7 +6,17 @@ database, none of it biddable. This is the cheap pre-filter that keeps us from
 paying the scrape chain to fetch pages we already know are listings; the real
 quality gate is in daily_scan, which drops a page that states no deadline.
 """
-from connectors.web_discovery import _is_tender_page
+import importlib.util
+from pathlib import Path
+
+# Load the module directly: importing `connectors.web_discovery` runs
+# connectors/__init__.py, which imports every connector and needs playwright.
+WEB_DISCOVERY_PATH = Path(__file__).resolve().parents[2] / "connectors" / "web_discovery.py"
+spec = importlib.util.spec_from_file_location("web_discovery_module", WEB_DISCOVERY_PATH)
+web_discovery_module = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+spec.loader.exec_module(web_discovery_module)
+_is_tender_page = web_discovery_module._is_tender_page
 
 
 def keeps(url, title=""):
