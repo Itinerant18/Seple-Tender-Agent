@@ -14,6 +14,7 @@ dates. Item text is truncated by the portal ("Portable Fire Extinguishers
 and is not worth it for classification.
 """
 import asyncio
+import base64
 import logging
 import re
 from datetime import datetime
@@ -60,11 +61,25 @@ _FIELD_PATTERNS = {
     "end_date": re.compile(r"End Date:\s*(.+?)$", re.I | re.S),
 }
 
-# CPPP mirrors the whole GeM bid corpus at this URL, paginated 10 rows/page
-# with a plain GET (?page=N) and no captcha — only its keyword search is
-# captcha-gated. The bidplus search above returns just the first page per
-# term, so this lifts that ceiling. Same bids, so dedup by bid number.
+# CPPP mirrors the whole GeM bid corpus at this URL, 10 rows/page and no
+# captcha — only its keyword search is captcha-gated. The bidplus search
+# above returns just the first page per term, so this lifts that ceiling.
+# Same bids, so dedup by bid number.
 MIRROR_URL = "https://eprocure.gov.in/cppp/latestactivetendersnew/gemdata"
+
+
+def _mirror_page_url(page: int) -> str:
+    """URL for 1-based mirror page `page`.
+
+    Pagination goes through a base64 of the real ?page=N URL. A bare
+    ?page=N is accepted and silently ignored: every request then returns
+    page 1's ten rows, so 40 pages yielded 10 unique rows (verified
+    19-08-2026, which is why GeM found only 3 tenders that night).
+    """
+    if page <= 1:
+        return MIRROR_URL
+    token = base64.b64encode(f"{MIRROR_URL}?page={page}".encode()).decode()
+    return f"{MIRROR_URL}?url={token}"
 
 # Broader than GEM_SEARCH_TERMS: mirror rows are filtered locally, not by the
 # portal, so recall matters more than query cost.
@@ -126,7 +141,11 @@ def _mirror_row_to_tender(cells: list[str], url: str | None) -> RawTender | None
     """
     if len(cells) < 7 or "GEM/" not in cells[3]:
         return None
-    if not any(token in f"{cells[4]} {cells[5]} {cells[6]}".lower() for token in MIRROR_TOKENS):
+    # Match the product column only. Organisation and department names carry
+    # our tokens too — "Border Security Force" made every tyre, battery and
+    # tractor bid they float a match, which is what put "Graphite Fine
+    # Powder" in a dashboard search for "security".
+    if not any(token in cells[4].lower() for token in MIRROR_TOKENS):
         return None
 
     bid = cells[3].rsplit("/", 1)[0] if cells[3].count("/") > 3 else cells[3]
@@ -152,9 +171,9 @@ def _scrape_mirror(pages: int) -> List[RawTender]:
 
     out: List[RawTender] = []
     with httpx.Client(timeout=45, headers={"User-Agent": "Mozilla/5.0"}, follow_redirects=True) as client:
-        for page in range(pages):
+        for page in range(1, pages + 1):
             try:
-                resp = client.get(MIRROR_URL if page == 0 else f"{MIRROR_URL}?page={page}")
+                resp = client.get(_mirror_page_url(page))
                 resp.raise_for_status()
             except Exception as e:
                 logger.warning("GeM mirror page %d failed: %s", page, e)

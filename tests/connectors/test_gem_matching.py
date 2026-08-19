@@ -93,3 +93,29 @@ def test_mirror_row_without_a_matching_token_is_dropped():
 
 def test_mirror_ignores_non_bid_rows():
     assert _mirror_row_to_tender(["header", "row"], None) is None
+
+
+_mirror_page_url = gem_direct_module._mirror_page_url
+
+
+def test_mirror_page_1_is_the_bare_url():
+    assert _mirror_page_url(1) == gem_direct_module.MIRROR_URL
+
+
+def test_mirror_pagination_encodes_the_page_url_in_base64():
+    # A bare ?page=N is silently ignored and re-serves page 1, so the url=
+    # token is the only thing that actually pages.
+    import base64
+    from urllib.parse import parse_qs, urlsplit
+
+    token = parse_qs(urlsplit(_mirror_page_url(7)).query)["url"][0]
+    assert base64.b64decode(token).decode() == f"{gem_direct_module.MIRROR_URL}?page=7"
+
+
+def test_organisation_name_alone_is_not_a_match():
+    # "Border Security Force" in the org column used to pull in its tyre and
+    # battery bids.
+    row = list(MIRROR_ROW)
+    row[4], row[5], row[6] = "TYRE-1,BATTERY-2", "Border Security Force (BSF)", "CAPF"
+
+    assert _mirror_row_to_tender(row, None) is None
