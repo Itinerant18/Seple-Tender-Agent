@@ -14,10 +14,12 @@ Brave Search API: free tier ~2,000 queries/month, 1 request/second. Get a key
 at https://brave.com/search/api/ and set BRAVE_API_KEY.
 """
 import os
+import re
 import time
 import asyncio
 import logging
 from datetime import datetime
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -34,6 +36,55 @@ _QUERY_TEMPLATES = [
     "{kw} tender notice eProcurement",
     "{kw} tender PSU OR bank OR municipal corporation India",
 ]
+
+
+# Search returns far more index pages than notices. A page titled "62 Cctv Amc
+# Tenders In India 2026" is a listing, so it has no deadline, no authority and no
+# reference — it was stored anyway, and WebSearch grew to 1,670 rows with a NULL
+# deadline on every single one (49% of the whole database, none of it biddable).
+_LISTING_URL_MARKERS = (
+    "/keyword/", "/global-keyword/", "quicksearch.aspx", "/indian-tender/",
+    "tenderailist", "/bids/", "/product/", "request-for-proposal",
+)
+
+_LISTING_TITLE_RE = re.compile(
+    r"^\s*\d+\s+.*\btenders?\b"          # "62 Cctv Amc Tenders In India 2026"
+    r"|^\s*(?:latest|live|all|top)\b.*\btenders?\b"
+    r"|^\s*search\s+tenders?\b"
+    r"|^\s*tenders?\s*[-–|]"             # "Tenders - Invest India"
+    r"|\btenders?\s*(?:&|and)\s*(?:rfps?|eprocurement)\b"
+    r"|\btenders?\s+(?:from|in)\s+\w+\s*\d{0,4}\s*$",
+    re.I,
+)
+
+# Already decided — an awarded contract is not an opportunity.
+_CLOSED_MARKERS = ("awarded", "/contract/", "/result", "cancelled")
+
+
+def _is_tender_page(url: str, title: str) -> bool:
+    """True if this looks like one tender notice rather than a list of them.
+
+    Aggregators are rejected wholesale by hostname. This connector exists for the
+    department, PSU, bank and newspaper sites the aggregators miss (see the module
+    docstring), and TenderTiger and Tender247 already have dedicated connectors —
+    so their pages are redundant here as well as unparseable. Government hosts are
+    exempt from the hostname rule because eprocure and state portals legitimately
+    carry "tender" in the name; their index pages are caught by the path and title
+    rules instead.
+    """
+    parts = urlsplit(url or "")
+    host = (parts.hostname or "").lower()
+    if not host:
+        return False
+    blob = f"{parts.path}?{parts.query}".lower()
+
+    if "tender" in host and not host.endswith((".gov.in", ".nic.in")):
+        return False
+    if any(marker in blob for marker in _LISTING_URL_MARKERS):
+        return False
+    if any(marker in blob for marker in _CLOSED_MARKERS):
+        return False
+    return not _LISTING_TITLE_RE.search(title or "")
 
 
 class WebDiscoveryConnector:
@@ -58,6 +109,7 @@ class WebDiscoveryConnector:
     def _search_all(self, keywords: list) -> list[RawTender]:
         tenders: list[RawTender] = []
         seen = set()
+        skipped = 0
         with httpx.Client(timeout=20) as client:
             for kw in keywords:
                 # one query template per keyword keeps the free-tier spend bounded
@@ -75,6 +127,9 @@ class WebDiscoveryConnector:
                     if not url or url in seen or not title:
                         continue
                     seen.add(url)
+                    if not _is_tender_page(url, title):
+                        skipped += 1
+                        continue
                     tenders.append(RawTender(
                         title=title[:300],
                         description=(item.get("description") or "")[:1000] or None,
@@ -83,7 +138,12 @@ class WebDiscoveryConnector:
                         search_term=kw,
                         scraped_at=datetime.utcnow().isoformat(),
                     ))
-        logger.info(f"Web discovery found {len(tenders)} candidate pages")
+        # Log the drop count: a silent filter is indistinguishable from a search
+        # that returned nothing, which is the failure mode this whole scan had.
+        logger.info(
+            "Web discovery found %d candidate notices (%d listing/aggregator "
+            "pages skipped)", len(tenders), skipped,
+        )
         return tenders
 
     def _search_brave(self, client: "httpx.Client", query: str) -> list[dict]:

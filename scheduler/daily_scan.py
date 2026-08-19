@@ -134,6 +134,27 @@ class ScannerOrchestrator:
 
         extracted = self.extractor.extract_all(doc_text or raw.description or raw.title)
 
+        # Web-discovered rows have no deadline field of their own, so fall back to
+        # whatever the fetched page states. Without this the extractor's deadline
+        # was computed and thrown away, and every WebSearch row stored a NULL.
+        if deadline is None:
+            deadline = FieldExtractor.parse_datetime(extracted.get("deadline"))
+
+        # A tender notice says when bids close. An index page, a product listing,
+        # a staff page or a news article about a tender does not — and after the
+        # URL filter those are still most of what a web search returns. Gate on
+        # the evidence rather than on the shape of the URL: guessing from the URL
+        # is an arms race, and this is the check that actually holds.
+        # Placed before classify() so a rejected page costs no LLM call.
+        if raw.source in ("WebDiscovery", "WebSearch") and deadline is None and not (
+            raw.tender_reference or extracted.get("gem_ref") or extracted.get("cppp_ref")
+        ):
+            logger.info(
+                "Dropping web result with no deadline and no tender reference: %s",
+                raw.url,
+            )
+            return None
+
         # Classify via LLM (falls back to regex if no provider/credit).
         analysis = await self.classifier.classify(raw, document_text=doc_text)
 

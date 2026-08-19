@@ -25,6 +25,20 @@ class FieldExtractor:
     GEM_REF_PATTERN = re.compile(r'(?i)(GEM/\d{4}/[B|R]/\d{7})')
     CPPP_REF_PATTERN = re.compile(r'(?i)(20\d{2}_[A-Z0-9]+_\d+_1)')
     
+    # Submission deadline, however the page words it. Web-discovered pages carry
+    # no deadline field of their own, so without this every WebSearch row landed
+    # with a NULL deadline: 1,670 rows, 100% of that source, permanently exempt
+    # from the board's expiry filter and showing an em dash in the UI.
+    # Only the date text is captured — parse_datetime owns the format zoo.
+    DEADLINE_PATTERN = re.compile(
+        r'(?i)(?:bid\s+submission\s+(?:end|closing)|last\s+date(?:\s*(?:&|and)\s*time)?'
+        r'|due\s+date|closing\s+date|submission\s+(?:end\s+date|deadline)|end\s+date)'
+        r'[^\n:]{0,40}[:\-]\s*'
+        r'(\d{1,2}[-/\s][A-Za-z0-9]{2,9}[-/\s]\d{2,4}'
+        r'(?:[\s,]+\d{1,2}:\d{2}(?:\s*[APap]\.?[Mm]\.?)?)?'
+        r'|\d{4}-\d{2}-\d{2}(?:[T\s]\d{2}:\d{2})?)'
+    )
+
     # Meetings
     PREBID_PATTERN = re.compile(r'(?i)pre[- ]?bid\s*meeting.*?(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}(?:\s+\d{1,2}:\d{2}\s*(?:AM|PM|hrs)?)?)')
     SITE_VISIT_PATTERN = re.compile(r'(?i)site\s*visit.*?(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})')
@@ -43,6 +57,7 @@ class FieldExtractor:
             'fee': self._extract_first(self.FEE_PATTERN, text),
             'gem_ref': self._extract_first(self.GEM_REF_PATTERN, text),
             'cppp_ref': self._extract_first(self.CPPP_REF_PATTERN, text),
+            'deadline': self._extract_first(self.DEADLINE_PATTERN, text),
             'pre_bid': self._extract_first(self.PREBID_PATTERN, text),
             'site_visit': self._extract_first(self.SITE_VISIT_PATTERN, text),
         }
