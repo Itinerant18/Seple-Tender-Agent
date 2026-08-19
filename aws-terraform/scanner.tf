@@ -46,6 +46,11 @@ resource "aws_ecs_task_definition" "scanner" {
       { name = "LLM_MODEL", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:LLM_MODEL::" },
       { name = "BRAVE_API_KEY", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:BRAVE_API_KEY::" },
       { name = "APIFY_API_TOKEN", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:APIFY_API_TOKEN::" },
+      # Firecrawl is the first paid rung of the scrape chain and the only one
+      # currently working — context.dev answers 401 and Zyte 403. The key was in
+      # Secrets Manager all along but was never mapped here, so the container saw
+      # it unset and the chain had no working engine at all (found 19-08-2026).
+      { name = "FIRECRAWL_API_KEY", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:FIRECRAWL_API_KEY::" },
       { name = "CONTEXT_DEV_API_KEY", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:CONTEXT_DEV_API_KEY::" },
       { name = "ZYTE_API", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:ZYTE_API::" },
       { name = "SLACK_WEBHOOK_URL", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:SLACK_WEBHOOK_URL::" },
