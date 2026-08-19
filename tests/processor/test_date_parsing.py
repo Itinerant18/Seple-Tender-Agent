@@ -84,3 +84,16 @@ def test_other_dates_on_the_page_are_not_mistaken_for_the_deadline():
 def test_page_with_no_deadline_yields_none():
     assert _deadline("62 Cctv Amc Tenders In India 2026 - browse listings") is None
     assert _deadline("") is None
+
+
+def test_a_year_is_not_mistaken_for_a_month():
+    # Stripping HTML collapses whitespace, so unrelated numbers end up adjacent.
+    # "...End Date 06-2023 11..." on bhel.com parsed as a date when the month
+    # slot accepted four digits. A wrong deadline is worse than none: the board
+    # would show a tender closing before it really does.
+    assert _deadline("Tender End Date 06-2023 11 Fire Alarm") is None
+
+
+def test_month_names_and_numeric_months_both_still_work():
+    assert _deadline("Closing Date: 09-12-2026") == "09-12-2026"
+    assert _deadline("Closing Date: 09-December-2026") == "09-December-2026"

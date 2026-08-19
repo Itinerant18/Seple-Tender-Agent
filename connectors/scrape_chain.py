@@ -62,7 +62,47 @@ def _zyte(url: str) -> str | None:
     return BeautifulSoup(html, "html.parser").get_text(" ", strip=True) or None
 
 
-_ENGINES = [("firecrawl", _firecrawl), ("context.dev", _context_dev), ("zyte", _zyte)]
+_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36")
+
+
+def _plain_http(url: str) -> str | None:
+    """Fetch and strip the page with no third-party API.
+
+    Most tender notices are static HTML on .gov.in / .nic.in hosts and need
+    neither a browser nor a paid engine. Every rung of this chain used to be a
+    paid API, so when all three keys went bad at once the chain returned empty
+    text for every URL — including plain pages like bhel.com/fire-alarm-system
+    (19-08-2026: Firecrawl unset, context.dev 401, Zyte 403). That silently
+    starved the classifier, which then judged 1,670 web results on their title
+    alone, and left every one of them without a deadline.
+
+    Binaries fall through to the paid engines, which is what they are for: PDF
+    text extraction would mean another dependency for a minority of pages.
+    """
+    try:
+        r = httpx.get(url, timeout=30, follow_redirects=True,
+                      headers={"User-Agent": _UA})
+        r.raise_for_status()
+    except Exception as e:
+        logger.debug("plain fetch failed for %s: %s", url, e)
+        return None
+
+    content_type = r.headers.get("content-type", "").lower()
+    if "html" not in content_type and "text/" not in content_type:
+        return None
+
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(r.text, "html.parser")
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+    return soup.get_text(" ", strip=True) or None
+
+
+# Free first: a paid call is only worth making for pages plain HTTP cannot read.
+_ENGINES = [("plain", _plain_http), ("firecrawl", _firecrawl),
+            ("context.dev", _context_dev), ("zyte", _zyte)]
 
 
 def scrape_page(url: str) -> dict:
