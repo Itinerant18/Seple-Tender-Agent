@@ -72,7 +72,10 @@ async def get_tenders(
 
     Closed tenders nobody triaged are hidden unless include_expired=true.
     """
-    tenders = await repository.list_tenders(
+    # Over-fetch one row to answer "is there a next page". A COUNT(*) would need
+    # the WHERE builder factored out of list_tenders for a number the UI does not
+    # show; revisit if the board ever wants "page 7 of 18".
+    rows = await repository.list_tenders(
         status=status,
         fit=fit,
         source_name=source,
@@ -80,10 +83,17 @@ async def get_tenders(
         min_value=min_value,
         q=q,
         include_expired=include_expired,
-        limit=limit,
+        limit=limit + 1,
         offset=offset
     )
-    return {"data": tenders, "count": len(tenders)}
+    has_more = len(rows) > limit
+    tenders = rows[:limit]
+    return {
+        "data": tenders,
+        "count": len(tenders),
+        "offset": offset,
+        "has_more": has_more,
+    }
 
 @app.get("/api/tenders/{tender_id}")
 async def get_tender_detail(tender_id: uuid.UUID):

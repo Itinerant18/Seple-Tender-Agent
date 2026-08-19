@@ -54,6 +54,8 @@ type Stats = {
 const FITS = ["", "strong_fit", "potential_fit", "low_fit"] as const;
 const SOURCES = ["", "TenderTiger", "Tender247", "GeM", "WebSearch"] as const;
 
+const PAGE_SIZE = 200;
+
 const FIT_LABEL: Record<string, string> = {
   strong_fit: "Strong Fit",
   potential_fit: "Potential Fit",
@@ -92,6 +94,8 @@ export default function TendersPage() {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [includeExpired, setIncludeExpired] = useState(false);
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, Tender>>({});
 
@@ -99,7 +103,10 @@ export default function TendersPage() {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({ limit: "200" });
+      const params = new URLSearchParams({
+        limit: String(PAGE_SIZE),
+        offset: String(page * PAGE_SIZE),
+      });
       if (fit) params.set("fit", fit);
       if (source) params.set("source", source);
       if (debouncedQuery) params.set("q", debouncedQuery);
@@ -111,16 +118,18 @@ export default function TendersPage() {
       if (!tRes.ok) throw new Error(`API ${tRes.status}`);
       const tData = await tRes.json();
       setTenders(tData.data || []);
+      setHasMore(Boolean(tData.has_more));
       if (sRes.ok) setStats(await sRes.json());
     } catch {
       setError(
         `Could not reach the tender API at ${TENDER_API}. Is the tender-api service running?`,
       );
       setTenders([]);
+      setHasMore(false);
     } finally {
       setLoading(false);
     }
-  }, [fit, source, debouncedQuery, includeExpired]);
+  }, [fit, source, debouncedQuery, includeExpired, page]);
 
   const toggleDetails = useCallback(async (t: Tender) => {
     if (expandedId === t.id) {
@@ -154,6 +163,7 @@ export default function TendersPage() {
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       setDebouncedQuery(query.trim());
+      setPage(0);
     }, 300);
     return () => window.clearTimeout(timeout);
   }, [query]);
@@ -212,7 +222,10 @@ export default function TendersPage() {
         </div>
         <select
           value={fit}
-          onChange={(e) => setFit(e.target.value)}
+          onChange={(e) => {
+            setFit(e.target.value);
+            setPage(0);
+          }}
           className="border-border bg-background h-9 rounded-md border px-2 text-sm"
         >
           {FITS.map((f) => (
@@ -223,7 +236,10 @@ export default function TendersPage() {
         </select>
         <select
           value={source}
-          onChange={(e) => setSource(e.target.value)}
+          onChange={(e) => {
+            setSource(e.target.value);
+            setPage(0);
+          }}
           className="border-border bg-background h-9 rounded-md border px-2 text-sm"
         >
           {SOURCES.map((s) => (
@@ -236,7 +252,10 @@ export default function TendersPage() {
           <input
             type="checkbox"
             checked={includeExpired}
-            onChange={(e) => setIncludeExpired(e.target.checked)}
+            onChange={(e) => {
+              setIncludeExpired(e.target.checked);
+              setPage(0);
+            }}
             className="border-border h-4 w-4 rounded border"
           />
           Show closed
@@ -245,9 +264,30 @@ export default function TendersPage() {
           <RefreshCw className="mr-1 h-4 w-4" />
           Refresh
         </Button>
-        <span className="text-text-tertiary ml-auto text-sm">
-          {tenders.length} shown
-        </span>
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-text-tertiary text-sm">
+            {tenders.length
+              ? `${page * PAGE_SIZE + 1}–${page * PAGE_SIZE + tenders.length}`
+              : "0"}{" "}
+            shown
+          </span>
+          <Button
+            outlined
+            size="sm"
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={loading || page === 0}
+          >
+            Prev
+          </Button>
+          <Button
+            outlined
+            size="sm"
+            onClick={() => setPage((p) => p + 1)}
+            disabled={loading || !hasMore}
+          >
+            Next
+          </Button>
+        </div>
       </div>
 
       {error && (
