@@ -64,10 +64,14 @@ async def get_tenders(
     category: Optional[str] = None,
     min_value: Optional[float] = None,
     q: Optional[str] = Query(None, max_length=200),
+    include_expired: bool = Query(False),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0)
 ):
-    """List tenders with optional filtering."""
+    """List tenders with optional filtering.
+
+    Closed tenders nobody triaged are hidden unless include_expired=true.
+    """
     tenders = await repository.list_tenders(
         status=status,
         fit=fit,
@@ -75,6 +79,7 @@ async def get_tenders(
         category=category,
         min_value=min_value,
         q=q,
+        include_expired=include_expired,
         limit=limit,
         offset=offset
     )

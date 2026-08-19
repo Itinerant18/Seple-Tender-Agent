@@ -91,6 +91,7 @@ export default function TendersPage() {
   const [source, setSource] = useState("");
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [includeExpired, setIncludeExpired] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, Tender>>({});
 
@@ -102,6 +103,7 @@ export default function TendersPage() {
       if (fit) params.set("fit", fit);
       if (source) params.set("source", source);
       if (debouncedQuery) params.set("q", debouncedQuery);
+      if (includeExpired) params.set("include_expired", "true");
       const [tRes, sRes] = await Promise.all([
         fetch(`${TENDER_API}/api/tenders?${params}`),
         fetch(`${TENDER_API}/api/stats`),
@@ -118,7 +120,7 @@ export default function TendersPage() {
     } finally {
       setLoading(false);
     }
-  }, [fit, source, debouncedQuery]);
+  }, [fit, source, debouncedQuery, includeExpired]);
 
   const toggleDetails = useCallback(async (t: Tender) => {
     if (expandedId === t.id) {
@@ -230,6 +232,15 @@ export default function TendersPage() {
             </option>
           ))}
         </select>
+        <label className="text-text-secondary flex h-9 items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={includeExpired}
+            onChange={(e) => setIncludeExpired(e.target.checked)}
+            className="border-border h-4 w-4 rounded border"
+          />
+          Show closed
+        </label>
         <Button outlined size="sm" onClick={load} disabled={loading}>
           <RefreshCw className="mr-1 h-4 w-4" />
           Refresh

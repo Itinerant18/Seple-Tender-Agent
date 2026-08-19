@@ -204,13 +204,27 @@ async def list_tenders(
     category: Optional[str] = None,
     min_value: Optional[float] = None,
     q: Optional[str] = None,
+    include_expired: bool = False,
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict]:
-    """List tenders with optional filters."""
+    """List tenders with optional filters, newest first.
+
+    By default this hides tenders whose deadline has passed AND which nobody has
+    triaged yet (status still 'new'). There is no time window otherwise: the view
+    is a row cap, so as scrape volume grows it silently reaches back fewer days.
+    Anything the team has touched stays visible however old it is, so a submitted
+    or won bid never disappears from the board. Pass include_expired=True for the
+    unfiltered history.
+    """
     conditions = []
     params = []
     idx = 1
+
+    if not include_expired:
+        conditions.append(
+            "(t.deadline IS NULL OR t.deadline >= NOW() OR t.status <> 'new')"
+        )
 
     if status:
         conditions.append(f"t.status = ${idx}")
