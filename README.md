@@ -2,7 +2,7 @@
   <img src="assets/banner.png" alt="SEPLE T AGENT" width="100%">
 </p>
 
-# SEPLE T AGENT ☤
+# SEPLE T AGENT ☤#
 
 **The Next-Generation Autonomous Tender Intelligence & Discovery System**
 
