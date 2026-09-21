@@ -28,6 +28,10 @@ from .base import BaseConnector
 
 logger = logging.getLogger(__name__)
 
+# Login actions get a login-scoped timeout instead of the page default (30s):
+# the SPA hydrates late and a re-render around the click must not fail the run.
+_LOGIN_ACTION_TIMEOUT = 90_000  # ms
+
 # full payload the API expects — missing keys cause a 400
 _SEARCH_JS = """async (arg) => {
     const ud = JSON.parse(localStorage.getItem('userData') || '{}');
@@ -63,6 +67,9 @@ class Tender247Connector(BaseConnector):
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
         self.session_file = Path(playwright_config.session_dir) / "tender247_state.json"
+        # Why the last login() failed, surfaced by scrape_tenders so the real
+        # cause lands on the scrape run instead of a generic "check credentials".
+        self.login_failure: Optional[str] = None
 
     @staticmethod
     def _proxy_server() -> Optional[str]:
@@ -101,6 +108,25 @@ class Tender247Connector(BaseConnector):
             config["username"] = unquote(parsed.username)
             config["password"] = unquote(parsed.password or "")
         return config
+
+    async def _clear_browser_state(self):
+        """Drop cookies + localStorage before a fresh login.
+
+        The session volume can hold a month-old storage_state whose JWT is long
+        expired. A hydrated SPA that finds an expired token can throw an
+        expired-session toast / re-render the header, and the login click then
+        never lands (seen 21-09-2026: the button was visible, the click timed
+        out after 30s, and the whole source failed for the day). Wiping the
+        stale state gives the fresh login a clean page.
+        """
+        try:
+            await self.context.clear_cookies()
+        except Exception as e:
+            logger.debug("Tender247 clear_cookies failed: %s", e)
+        try:
+            await self.page.evaluate("localStorage.clear()")
+        except Exception as e:
+            logger.debug("Tender247 localStorage.clear failed: %s", e)
 
     async def _init_browser(self):
         if self.playwright:
@@ -150,7 +176,12 @@ class Tender247Connector(BaseConnector):
                     self.is_logged_in = True
                     logger.info("Tender247 session restored from storage_state")
                     return True
-                logger.info("Persisted Tender247 session expired — logging in fresh")
+                logger.info("Persisted Tender247 session expired — clearing stale browser state and logging in fresh")
+                # The stale token is still in localStorage/cookies at this point.
+                # A hydrated SPA holding an expired JWT can toast/re-render and
+                # swallow the login click (21-09-2026 outage), so wipe it before
+                # the fresh-login attempt.
+                await self._clear_browser_state()
 
             # 2. Fresh login via homepage modal
             await self.page.goto(self.base_url, wait_until="domcontentloaded")
@@ -163,16 +194,35 @@ class Tender247Connector(BaseConnector):
             # menu holds a hidden "Sign Up / Log in" duplicate — matching that
             # one waits forever for visibility, so keep this match exact.
             login_button = self.page.get_by_role("button", name="Log in", exact=True).first
-            await login_button.wait_for(state="visible", timeout=60_000)
-            await login_button.click()
+            # Try the click twice: a SPA re-render between wait_for and click
+            # (expired-session toast, hydrating header) must not fail the whole
+            # source for the day. Retrying forces a fresh hit-target re-check,
+            # so a torn-down first attempt still lands on the second.
+            click_error: Exception | None = None
+            for attempt in (1, 2):
+                try:
+                    await login_button.wait_for(state="visible", timeout=_LOGIN_ACTION_TIMEOUT)
+                    await login_button.click(timeout=_LOGIN_ACTION_TIMEOUT)
+                    click_error = None
+                    break
+                except Exception as e:
+                    click_error = e
+                    logger.warning("Tender247 login click attempt %d failed: %s", attempt, e)
+            if click_error is not None:
+                self.login_failure = (
+                    f"login button click failed after retry: "
+                    f"{type(click_error).__name__}: {click_error}"
+                )
+                logger.error("Tender247 login failed: %s", self.login_failure)
+                return False
             email_box = self.page.locator("input[name='emailId']")
-            await email_box.wait_for(state="visible", timeout=30_000)
+            await email_box.wait_for(state="visible", timeout=_LOGIN_ACTION_TIMEOUT)
             await email_box.fill(self.email)
             await self.page.fill("input[type='password']", self.password)
-            await self.page.get_by_role("button", name="SUBMIT").first.click()
+            await self.page.get_by_role("button", name="SUBMIT").first.click(timeout=_LOGIN_ACTION_TIMEOUT)
             redirected = True
             try:
-                await self.page.wait_for_url("**/auth/**", timeout=90_000)
+                await self.page.wait_for_url("**/auth/**", timeout=_LOGIN_ACTION_TIMEOUT)
             except Exception:
                 redirected = False
 
@@ -189,31 +239,71 @@ class Tender247Connector(BaseConnector):
             # whitelist while the credentials were correct all along (19-08-2026).
             # A rejected login leaves us on the homepage with an error in the
             # modal; a slow one just never redirects in time.
-            reason = (
-                "no redirect within 90s" if not redirected
-                else f"landed on {self.page.url}"
-            )
+            if not redirected:
+                self.login_failure = "no redirect to /auth within 90s after SUBMIT"
+            else:
+                self.login_failure = f"landed on {self.page.url} instead of /auth"
             logger.error(
                 "Failed to login to Tender247 (%s). Credentials are only one "
                 "possible cause — check the login duration in this log before "
-                "assuming they are wrong.", reason
+                "assuming they are wrong.", self.login_failure
             )
             return False
         except Exception as e:
+            self.login_failure = f"{type(e).__name__}: {e}"
             logger.error(f"Error during Tender247 login: {e}")
             return False
+
+    async def _wait_for_feed_ready(self, timeout_s: int = 30) -> None:
+        """Wait until the SPA has materialized the subscription feed context.
+
+        The search API scopes results by localStorage 'user_query_id' (the
+        subscription query). Right after a FRESH login that key is not yet
+        set — the SPA writes it when the dashboard finishes loading — and a
+        search sent with user_email_service_query_id=0 returns Success=true
+        with an EMPTY feed (21-09-2026: fresh login succeeded, the scrape got
+        0 rows and looked like a quiet day; the same session restored later
+        returned 100). Poll for the key instead of sleeping a fixed guess, and
+        fail loudly if it never appears — an empty feed must not be
+        indistinguishable from a broken one.
+        """
+        for _ in range(timeout_s * 2):
+            try:
+                qid = await self.page.evaluate("() => localStorage.getItem('user_query_id')")
+            except Exception:
+                qid = None
+            if qid and str(qid) not in ("0", "null", ""):
+                return
+            await asyncio.sleep(0.5)
+        raise RuntimeError(
+            "Tender247 feed not ready: localStorage 'user_query_id' missing "
+            f"{timeout_s}s after login — the SPA never materialized the "
+            "subscription query, so a search now would silently return an "
+            "empty feed"
+        )
 
     async def scrape_tenders(self, keywords: List[str] = None, days_back: int = 1) -> List[RawTender]:
         """Query the subscription feed via the JSON API — one call per keyword,
         plus one unfiltered call so nothing in the daily feed is missed (PRD §6.5)."""
         if not self.is_logged_in and not await self.login():
-            # Surfaces on the scrape run instead of reading as an empty feed.
-            raise RuntimeError("Tender247 login failed — check credentials or the login markup")
+            # The precise login_failure lands on the scrape run so "Tender247:
+            # failed" on the dashboard is diagnosable without opening the
+            # scanner logs. The old message read as a credentials verdict —
+            # which cost a day of password/IP-whitelist chasing (19-08-2026) —
+            # and hid a SPA click-timeout outage (21-09-2026).
+            detail = f": {self.login_failure}" if self.login_failure else " — the connector log has the precise error"
+            raise RuntimeError(f"Tender247 login failed{detail}")
 
         # make sure we're on an /auth page so localStorage + relative fetch work
         if "/auth/" not in self.page.url:
             await self.page.goto(f"{self.base_url}/auth/tender", wait_until="domcontentloaded")
             await asyncio.sleep(6)
+
+        # The feed API scopes by localStorage 'user_query_id'. A restored
+        # session already has it; a fresh login needs a few seconds for the
+        # SPA to write it. Without this wait the first search after a fresh
+        # login returns Success=true with zero rows.
+        await self._wait_for_feed_ready()
 
         tenders: List[RawTender] = []
         seen = set()
