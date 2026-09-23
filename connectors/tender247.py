@@ -156,7 +156,7 @@ class Tender247Connector(BaseConnector):
             ignore_https_errors=bool(proxy),
         )
         self.page = await self.context.new_page()
-        timeout = 120_000 if proxy else playwright_config.timeout
+        timeout = 120_000   # login-page nav from AWS egress is slow; 30s timed out
         self.page.set_default_timeout(timeout)
         self.page.set_default_navigation_timeout(timeout)
 
