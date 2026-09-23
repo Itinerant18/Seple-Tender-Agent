@@ -53,14 +53,28 @@ services:
       TENDER247_PASSWORD: ${TENDER247_PASSWORD}
       SCAN_HOUR: ${SCAN_HOUR:-6}
       SCAN_MINUTE: ${SCAN_MINUTE:-0}
+      # Free self-hosted web search for open-web discovery (same as the AWS
+      # sidecar). Reached by compose service name; no API key needed.
+      SEARXNG_URL: http://searxng:8080
     depends_on:
       db:
         condition: service_healthy
+      searxng:
+        condition: service_started
     env_file:
       - .env
     volumes:
       # persist TenderTiger browser session across rebuilds — fresh logins trip the WAF
       - seple_sessions:/root/.seple
+
+  # ─── SearXNG (free web-search backend for tender discovery) ──
+  searxng:
+    build:
+      context: .
+      dockerfile: Dockerfile.searxng
+    restart: unless-stopped
+    expose:
+      - "8080"   # internal only — tender-scanner reaches it at http://searxng:8080
 
   # ─── Hermes Agent ────────────────────────────────────────
   hermes:
