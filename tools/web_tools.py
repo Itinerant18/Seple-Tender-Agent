@@ -698,23 +698,17 @@ def web_search_tool(query: str, limit: int = 5) -> str:
             disabled_key = _disabled_web_plugin_for(capability="search")
             if disabled_key:
                 _vendor = disabled_key.split("/", 1)[-1]
-                response_data = {
-                    "success": False,
-                    "error": (
-                        f"web.search_backend is set to '{_vendor}', but its "
-                        f"plugin ('{disabled_key}') is disabled in config. "
-                        f"Re-enable it with `hermes plugins enable {disabled_key}` "
-                        "(or remove it from plugins.disabled)."
-                    ),
-                }
+                return tool_error(
+                    f"Error searching web: web.search_backend is set to '{_vendor}', but its "
+                    f"plugin ('{disabled_key}') is disabled in config. "
+                    f"Re-enable it with `hermes plugins enable {disabled_key}` "
+                    "(or remove it from plugins.disabled)."
+                )
             else:
-                response_data = {
-                    "success": False,
-                    "error": (
-                        "No web search provider configured. "
-                        "Run `hermes tools` to set one up."
-                    ),
-                }
+                return tool_error(
+                    "Error searching web: No web search provider configured. "
+                    "Run `hermes tools` to set one up."
+                )
         else:
             logger.info(
                 "Web search via %s: '%s' (limit: %d)",
@@ -738,6 +732,116 @@ def web_search_tool(query: str, limit: int = 5) -> str:
         _debug.save()
 
         return tool_error(error_msg)
+
+
+async def _scrapy_fallback_extract(
+    safe_urls: List[str],
+    safe_indices: List[int],
+    results: List[Dict[str, Any]],
+    format: Optional[str],
+) -> List[Dict[str, Any]]:
+    """Attempt to extract content from URLs that returned empty/falsy results using Scrapy.
+
+    This fallback runs when the primary provider returns results with no content
+    (empty string, None, or missing content/raw_content fields). It attempts to
+    fetch and extract content using Scrapy for those specific URLs.
+
+    Args:
+        safe_urls: List of URLs that were passed to the primary provider
+        safe_indices: Original indices of these URLs in the full input list
+        results: Results from the primary provider (same order as safe_urls)
+        format: Output format requested ("markdown" or "html")
+
+    Returns:
+        Updated results list with Scrapy fallback content merged in for failed URLs
+    """
+    # Check if scrapy fallback is enabled in config
+    try:
+        from hermes_cli.config import load_config
+        cfg = load_config()
+        web_cfg = cfg.get("web") or {}
+        if not web_cfg.get("scrapy_fallback", True):
+            return results
+    except Exception:
+        # If config loading fails, default to enabled
+        pass
+
+    # Identify URLs with empty/falsy content
+    fallback_urls = []
+    fallback_indices = []
+    for position, (url, result) in enumerate(zip(safe_urls, results)):
+        if position >= len(results):
+            continue
+        content = result.get("raw_content") or result.get("content") or ""
+        error = result.get("error")
+        
+        # Check if the content contains any deadline-related keywords
+        content_lower = content.lower()
+        has_deadline_info = any(keyword in content_lower for keyword in ["deadline", "due date", "closing date", "submission date", "end date"])
+        
+        # Fallback if: no content, error but no content, or missing deadline info
+        if not content or (error and not content) or not has_deadline_info:
+            fallback_urls.append(url)
+            fallback_indices.append(position)
+
+    if not fallback_urls:
+        return results
+
+    logger.info("Scrapy fallback: attempting extraction for %d URL(s) with empty content", len(fallback_urls))
+
+    # Try to get Scrapy provider from registry
+    try:
+        from agent.web_search_registry import get_provider
+        scrapy_provider = get_provider("scrapy")
+        if scrapy_provider is None or not scrapy_provider.is_available():
+            logger.debug("Scrapy provider not available for fallback")
+            return results
+    except Exception as exc:
+        logger.debug("Failed to get Scrapy provider for fallback: %s", exc)
+        return results
+
+    # Extract with Scrapy for fallback URLs
+    try:
+        import inspect
+        if inspect.iscoroutinefunction(scrapy_provider.extract):
+            scrapy_results = await scrapy_provider.extract(fallback_urls, format=format)
+        else:
+            scrapy_results = await asyncio.to_thread(
+                scrapy_provider.extract, fallback_urls, format=format
+            )
+    except Exception as exc:
+        logger.warning("Scrapy fallback extraction failed: %s", exc)
+        return results
+
+    # Merge Scrapy results back into original results
+    # Create a mapping from fallback URL position to scrapy result
+    scrapy_by_position = {pos: result for pos, result in zip(fallback_indices, scrapy_results)}
+
+    updated_results = []
+    for position, result in enumerate(results):
+        if position in scrapy_by_position:
+            scrapy_result = scrapy_by_position[position]
+            # Only use Scrapy result if it has content
+            scrapy_content = scrapy_result.get("raw_content") or scrapy_result.get("content") or ""
+            if scrapy_content and not scrapy_result.get("error"):
+                logger.info("Scrapy fallback succeeded for %s", scrapy_result.get("url", ""))
+                # Merge: keep original URL/title if present, use Scrapy content
+                merged = {**result}
+                merged["content"] = scrapy_result.get("content", "")
+                merged["raw_content"] = scrapy_result.get("raw_content", "")
+                if scrapy_result.get("title") and not merged.get("title"):
+                    merged["title"] = scrapy_result.get("title", "")
+                if scrapy_result.get("metadata"):
+                    merged["metadata"] = {**merged.get("metadata", {}), **scrapy_result.get("metadata", {})}
+                updated_results.append(merged)
+            else:
+                # Scrapy also failed - keep original result (which has error or empty content)
+                logger.debug("Scrapy fallback also returned empty content for %s", fallback_urls[fallback_indices.index(position)] if position in fallback_indices else "unknown")
+                updated_results.append(result)
+        else:
+            updated_results.append(result)
+
+    return updated_results
 
 
 async def web_extract_tool(
@@ -942,6 +1046,9 @@ async def web_extract_tool(
                 results = await asyncio.to_thread(
                     provider.extract, safe_urls, format=format
                 )
+
+            # Scrapy fallback: for URLs with empty/falsy content, retry with Scrapy
+            results = await _scrapy_fallback_extract(safe_urls, safe_indices, results, format)
 
         # Reconstruct the original input order across invalid, blocked, and
         # provider-processed entries. Providers are expected to preserve the

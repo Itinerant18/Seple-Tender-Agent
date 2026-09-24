@@ -308,7 +308,8 @@ class TestUnconfiguredErrorEnvelopeParity:
         assert "error" in result, f"expected top-level 'error' key, got {result}"
         # ``Error searching web:`` prefix comes from web_tools' top-level except handler
         assert "Error searching web:" in result["error"]
-        assert "FIRECRAWL_API_KEY" in result["error"]
+        # Error should indicate no provider is configured (plugin-based backend selection)
+        assert "configured" in result["error"].lower() or "provider" in result["error"].lower()
         # No per-result burying
         assert "results" not in result
 

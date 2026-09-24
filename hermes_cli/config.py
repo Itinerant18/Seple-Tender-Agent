@@ -1269,6 +1269,7 @@ DEFAULT_CONFIG = {
         "search_backend": "",    # per-capability override for web_search (e.g. "searxng")
         "extract_backend": "",   # per-capability override for web_extract (e.g. "native")
         "extract_char_limit": 15000,  # per-page char budget for web_extract; larger pages truncate + store full text in cache/web
+        "scrapy_fallback": True,  # enable Scrapy fallback when primary extract provider returns empty content
     },
 
     "browser": {
