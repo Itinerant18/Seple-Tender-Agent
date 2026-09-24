@@ -19,6 +19,61 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
+# A tender whose deadline is unstated is treated as live only for this long.
+# Indian government tenders almost never stay open beyond ~45 days, and web
+# discovery used to bank ancient notices forever because a NULL deadline
+# exempted them from every expiry check (1,670 WebSearch rows, all stale).
+STALE_DAYS = 30
+
+# The dashboard's "closing soon" window. Mirrors AlertRulesEngine's
+# SHORT_DEADLINE_DAYS so the board's urgent view and the short-deadline
+# instant alert agree on what "close to closing" means; bump both together.
+CLOSING_SOON_DAYS = 5
+
+# The active-board expiry filter. A tender is live when it closes in the
+# future, or when it states no deadline and was published/created recently.
+# Applied UNCONDITIONALLY by list_tenders() — expired/stale rows never reach
+# the board, in the default view or any toggle — and reused by
+# sync_expired_tenders() so the view and the auto-close can never disagree
+# about what "stale" means.
+_ACTIVE_FRESHNESS_SQL = """(
+    (t.deadline IS NOT NULL AND t.deadline >= NOW())
+    OR (t.deadline IS NULL
+        AND COALESCE(t.publication_date::timestamp, t.created_at) >= NOW() - INTERVAL '{stale_days} days')
+)""".format(stale_days=STALE_DAYS)
+
+_IS_EXPIRED_SQL = f"""(
+    (t.deadline IS NOT NULL AND t.deadline < NOW())
+    OR (t.deadline IS NULL
+        AND COALESCE(t.publication_date::timestamp, t.created_at) < NOW() - INTERVAL '{STALE_DAYS} days')
+)"""
+
+# The "closing soon" toggle: live tenders inside the closing window. The
+# lower bound keeps a tender that just closed out of this view — the clock
+# moves it to expired the same instant it leaves the window.
+_CLOSING_SOON_SQL = f"""(
+    t.deadline IS NOT NULL
+    AND t.deadline >= NOW()
+    AND t.deadline < NOW() + INTERVAL '{CLOSING_SOON_DAYS} days'
+)"""
+
+
+def _rows_affected(command_tag: Optional[str]) -> int:
+    """Row count from an asyncpg command tag such as ``"UPDATE 7"``.
+
+    conn.fetchval() is the wrong tool for a bare UPDATE: with no RETURNING
+    clause the statement produces no result rows, so it returns None and the
+    count silently reads 0 — sync_expired_tenders() logged "closed 0" in the
+    same breath as it closed rows, and the cleanup script printed
+    "Applied: {'closed_past_deadline': 0}" right after a real close.
+    """
+    if not command_tag:
+        return 0
+    try:
+        return int(command_tag.rsplit(" ", 1)[-1])
+    except (ValueError, IndexError):
+        return 0
+
 
 # ─── Audit Helper ──────────────────────────────────────────
 
@@ -128,8 +183,9 @@ async def get_tender(tender_id: UUID) -> Optional[dict]:
     """Get a single tender by ID."""
     async with get_connection() as conn:
         row = await conn.fetchrow(
-            """
+            f"""
             SELECT t.*, s.name AS source_name,
+                   {_IS_EXPIRED_SQL} AS is_expired,
                    latest.analysis_model,
                    latest.uncertainty_notes,
                    latest.confidence AS analysis_confidence,
@@ -204,26 +260,36 @@ async def list_tenders(
     category: Optional[str] = None,
     min_value: Optional[float] = None,
     q: Optional[str] = None,
-    include_expired: bool = False,
+    closing_soon: bool = False,
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict]:
     """List tenders with optional filters, newest first.
 
-    By default this hides tenders whose deadline has passed AND which nobody has
-    triaged yet (status still 'new'). There is no time window otherwise: the view
-    is a row cap, so as scrape volume grows it silently reaches back fewer days.
-    Anything the team has touched stays visible however old it is, so a submitted
-    or won bid never disappears from the board. Pass include_expired=True for the
-    unfiltered history.
+    This is always the ACTIVE board: a tender whose deadline has passed is
+    expired, and a tender with no deadline is stale once it is older than
+    STALE_DAYS — both are hidden in EVERY view. There is no flag that lifts
+    this any more: the old include_expired switch turned the endpoint into a
+    full-history dump and flooded the dashboard with years-old notices. The
+    is_expired flag is still computed per row for badging and detail views.
+
+    closing_soon=True narrows the board to live tenders inside the
+    CLOSING_SOON_DAYS window — the urgent "closing date is near" view. It
+    replaces the terminal-status filter rather than stacking on it: a triaged
+    row closing tomorrow is still biddable and belongs in this view.
     """
     conditions = []
     params = []
     idx = 1
 
-    if not include_expired:
+    # Expiry filtering is unconditional — no caller can opt out of it.
+    conditions.append(_ACTIVE_FRESHNESS_SQL)
+
+    if closing_soon:
+        conditions.append(_CLOSING_SOON_SQL)
+    else:
         conditions.append(
-            "(t.deadline IS NULL OR t.deadline >= NOW() OR t.status <> 'new')"
+            "t.status NOT IN ('closed', 'lost', 'ignored', 'disqualified')"
         )
 
     if status:
@@ -264,7 +330,8 @@ async def list_tenders(
     params.extend([limit, offset])
 
     query = f"""
-        SELECT t.*, s.name as source_name
+        SELECT t.*, s.name as source_name,
+               {_IS_EXPIRED_SQL} AS is_expired
         FROM tenders t
         LEFT JOIN sources s ON t.source_id = s.id
         WHERE {where_clause}
@@ -292,6 +359,68 @@ async def update_status(tender_id: UUID, status: TenderStatus, performed_by: str
         await _audit(conn, "update_status", "tender", tender_id,
                      {"old_status": old_status, "new_status": status.value},
                      performed_by)
+
+
+async def sync_expired_tenders() -> dict:
+    """Auto-close tenders the pipeline has already left behind.
+
+    Two classes land here: rows whose stated deadline has passed, and rows
+    that state no deadline and are older than STALE_DAYS (web discovery used
+    to bank ancient notices forever on a NULL deadline — 1,670 rows, none
+    biddable). Only rows still in 'new' are touched: a human triage decision
+    (under_review/qualified/submitted/won/lost) is never overwritten by the
+    clock. Idempotent — a second run finds nothing to do.
+
+    Called on API startup and at both the start and the end of every
+    scheduled scan cycle.
+    """
+    async with get_connection() as conn:
+        past_deadline = _rows_affected(await conn.execute(
+            """
+            UPDATE tenders SET status = 'closed', updated_at = NOW()
+            WHERE status = 'new' AND deadline IS NOT NULL AND deadline < NOW()
+            """
+        ))
+        stale = _rows_affected(await conn.execute(
+            f"""
+            UPDATE tenders SET status = 'closed', updated_at = NOW()
+            WHERE status = 'new' AND deadline IS NULL
+              AND COALESCE(publication_date::timestamp, created_at)
+                    < NOW() - INTERVAL '{STALE_DAYS} days'
+            """
+        ))
+    counts = {
+        "closed_past_deadline": int(past_deadline),
+        "closed_stale": int(stale),
+    }
+    if counts["closed_past_deadline"] or counts["closed_stale"]:
+        logger.info("sync_expired_tenders: %s", counts)
+    return counts
+
+
+async def set_tender_deadline(
+    tender_id: UUID,
+    deadline: datetime,
+    performed_by: str = "system",
+) -> bool:
+    """Backfill a deadline for an existing tender (historical cleanup).
+
+    Fills only when the stored deadline is NULL — never rewrites a date the
+    pipeline already recorded.
+    """
+    async with get_connection() as conn:
+        result = await conn.execute(
+            """
+            UPDATE tenders SET deadline = $2, updated_at = NOW()
+            WHERE id = $1 AND deadline IS NULL
+            """,
+            tender_id, deadline,
+        )
+        updated = result.endswith(" 1")
+        if updated:
+            await _audit(conn, "backfill_deadline", "tender", tender_id,
+                         {"deadline": deadline.isoformat()}, performed_by)
+        return updated
 
 
 async def record_feedback(

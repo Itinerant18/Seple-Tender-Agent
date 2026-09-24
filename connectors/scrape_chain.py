@@ -77,8 +77,10 @@ def _plain_http(url: str) -> str | None:
     starved the classifier, which then judged 1,670 web results on their title
     alone, and left every one of them without a deadline.
 
-    Binaries fall through to the paid engines, which is what they are for: PDF
-    text extraction would mean another dependency for a minority of pages.
+    PDFs are extracted locally with pdfplumber (already a scanner dependency),
+    so the extractor and classifier see the notice's real terms — including
+    its closing date — instead of the empty text that made every PDF-backed
+    WebSearch row deadline-less.
     """
     try:
         r = httpx.get(url, timeout=30, follow_redirects=True,
@@ -89,6 +91,9 @@ def _plain_http(url: str) -> str | None:
         return None
 
     content_type = r.headers.get("content-type", "").lower()
+    is_pdf = "application/pdf" in content_type or url.lower().split("?")[0].endswith(".pdf")
+    if is_pdf:
+        return _pdf_text(r.content, url)
     if "html" not in content_type and "text/" not in content_type:
         return None
 
@@ -98,6 +103,32 @@ def _plain_http(url: str) -> str | None:
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
     return soup.get_text(" ", strip=True) or None
+
+
+def _pdf_text(data: bytes, url: str, max_pages: int = 12) -> str | None:
+    """Extract text from a PDF body with pdfplumber.
+
+    Deadline notices live on page 1, so a bounded page read keeps huge
+    government BOQs cheap. Returns None on any failure so the rung falls
+    through to the paid engines exactly like a plain-HTTP error would.
+    """
+    try:
+        import io
+        import pdfplumber
+        full_text = []
+        with pdfplumber.open(io.BytesIO(data)) as pdf:
+            for page in pdf.pages[:max_pages]:
+                text = page.extract_text()
+                if text:
+                    full_text.append(text)
+        joined = "\n".join(full_text).strip()
+        if not joined:
+            logger.debug("pdfplumber extracted no text from %s (scanned image PDF?)", url)
+            return None
+        return joined
+    except Exception as e:
+        logger.debug("pdf extraction failed for %s: %s", url, e)
+        return None
 
 
 # Free first: a paid call is only worth making for pages plain HTTP cannot read.

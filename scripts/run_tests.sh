@@ -42,15 +42,22 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # (HERMES_PYTHON is exported by the devShell hook and ships [dev] extras:
 # pytest, pytest-asyncio, pytest-timeout, ruff, ty).
 VENV=""
+PYTHON=""
+# bin/ is the POSIX layout; Scripts/ is how venv lays itself out on Windows
+# (Git Bash runs the .exe from there, and bash resolves `python` ->
+# `python.exe` on its own).
 for candidate in "$REPO_ROOT/.venv" "$REPO_ROOT/venv" "$HOME/.hermes/hermes-agent/venv"; do
-  if [ -f "$candidate/bin/activate" ]; then
-    VENV="$candidate"
-    break
-  fi
+  for bindir in bin Scripts; do
+    if [ -f "$candidate/$bindir/activate" ]; then
+      VENV="$candidate"
+      PYTHON="$candidate/$bindir/python"
+      break 2
+    fi
+  done
 done
 
-if [ -n "$VENV" ]; then
-  PYTHON="$VENV/bin/python"
+if [ -n "$PYTHON" ] && "$PYTHON" -c 'import pytest' 2>/dev/null; then
+  :
 elif [ -n "${HERMES_PYTHON:-}" ] && [ -x "$HERMES_PYTHON" ] \
     && "$HERMES_PYTHON" -c 'import pytest' 2>/dev/null; then
   # Guard with an import check: HERMES_PYTHON may point at the RELEASE
@@ -94,11 +101,16 @@ echo "▶ launching test runner"
 exec env -i \
   PATH="$PATH" \
   HOME="$HOME" \
+  ${USERPROFILE:+USERPROFILE="$USERPROFILE"} \
+  ${HOMEDRIVE:+HOMEDRIVE="$HOMEDRIVE"} \
+  ${HOMEPATH:+HOMEPATH="$HOMEPATH"} \
   TZ=UTC \
   LANG=C.UTF-8 \
   LC_ALL=C.UTF-8 \
   PYTHONHASHSEED=0 \
+  PYTHONUTF8=1 \
   ${HERMES_RUN_SLOW_PET_TESTS:+HERMES_RUN_SLOW_PET_TESTS="$HERMES_RUN_SLOW_PET_TESTS"} \
+  ${TENDER_E2E_DATABASE_URL:+TENDER_E2E_DATABASE_URL="$TENDER_E2E_DATABASE_URL"} \
   ${EXTRA_PYTHONPATH:+PYTHONPATH="$EXTRA_PYTHONPATH"} \
   ${EXTRA_PYTEST_PLUGINS:+PYTEST_PLUGINS="$EXTRA_PYTEST_PLUGINS"} \
   "$PYTHON" "$SCRIPT_DIR/run_tests_parallel.py" "$@"

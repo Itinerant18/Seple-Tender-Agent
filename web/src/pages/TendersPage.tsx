@@ -28,6 +28,7 @@ type Tender = {
   fit_classification: string | null;
   confidence: string | null;
   status: string | null;
+  is_expired?: boolean | null;
   matched_keywords: string[] | null;
   matching_rationale: string | null;
   analysis_model?: string | null;
@@ -54,6 +55,10 @@ type Stats = {
 const FITS = ["", "strong_fit", "potential_fit", "low_fit"] as const;
 const SOURCES = ["", "TenderTiger", "Tender247", "GeM", "WebSearch"] as const;
 
+// Kept in sync with CLOSING_SOON_DAYS in database/repository.py and
+// SHORT_DEADLINE_DAYS in notifier/alert_rules.py — the "closing soon" window.
+const CLOSING_SOON_DAYS = 5;
+
 const PAGE_SIZE = 200;
 
 const FIT_LABEL: Record<string, string> = {
@@ -65,6 +70,29 @@ const FIT_TONE: Record<string, "success" | "warning" | "outline"> = {
   strong_fit: "success",
   potential_fit: "warning",
   low_fit: "outline",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  new: "New",
+  under_review: "Under Review",
+  qualified: "Qualified",
+  submitted: "Submitted",
+  won: "Won",
+  lost: "Lost",
+  closed: "Closed",
+  ignored: "Ignored",
+  disqualified: "Disqualified",
+};
+const STATUS_TONE: Record<string, "outline" | "warning" | "destructive" | "success"> = {
+  new: "outline",
+  under_review: "warning",
+  qualified: "outline",
+  submitted: "outline",
+  won: "success",
+  lost: "destructive",
+  closed: "destructive",
+  ignored: "destructive",
+  disqualified: "destructive",
 };
 
 function fmtValue(t: Tender): string {
@@ -83,6 +111,20 @@ function fmtDate(iso: string | null): string {
   });
 }
 
+function isClosedOrExpired(t: Tender): boolean {
+  if (t.status === "closed") return true;
+  if (t.is_expired) return true;
+  if (t.deadline) return new Date(t.deadline).getTime() < Date.now();
+  return false;
+}
+
+function isClosingSoon(t: Tender): boolean {
+  if (!t.deadline) return false;
+  const ms = new Date(t.deadline).getTime();
+  const now = Date.now();
+  return ms >= now && ms < now + CLOSING_SOON_DAYS * 24 * 60 * 60 * 1000;
+}
+
 export default function TendersPage() {
   const { setTitle } = usePageHeader();
   const [tenders, setTenders] = useState<Tender[]>([]);
@@ -93,7 +135,7 @@ export default function TendersPage() {
   const [source, setSource] = useState("");
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [includeExpired, setIncludeExpired] = useState(false);
+  const [closingSoon, setClosingSoon] = useState(false);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -110,7 +152,9 @@ export default function TendersPage() {
       if (fit) params.set("fit", fit);
       if (source) params.set("source", source);
       if (debouncedQuery) params.set("q", debouncedQuery);
-      if (includeExpired) params.set("include_expired", "true");
+      // Expired tenders are never requested — the API hides them in every
+      // view. This toggle only narrows the live board to the urgent window.
+      if (closingSoon) params.set("closing_soon", "true");
       const [tRes, sRes] = await Promise.all([
         fetch(`${TENDER_API}/api/tenders?${params}`),
         fetch(`${TENDER_API}/api/stats`),
@@ -129,7 +173,7 @@ export default function TendersPage() {
     } finally {
       setLoading(false);
     }
-  }, [fit, source, debouncedQuery, includeExpired, page]);
+  }, [fit, source, debouncedQuery, closingSoon, page]);
 
   const toggleDetails = useCallback(async (t: Tender) => {
     if (expandedId === t.id) {
@@ -251,14 +295,14 @@ export default function TendersPage() {
         <label className="text-text-secondary flex h-9 items-center gap-2 text-sm">
           <input
             type="checkbox"
-            checked={includeExpired}
+            checked={closingSoon}
             onChange={(e) => {
-              setIncludeExpired(e.target.checked);
+              setClosingSoon(e.target.checked);
               setPage(0);
             }}
             className="border-border h-4 w-4 rounded border"
           />
-          Show closed
+          Closing soon (≤ {CLOSING_SOON_DAYS} days)
         </label>
         <Button outlined size="sm" onClick={load} disabled={loading}>
           <RefreshCw className="mr-1 h-4 w-4" />
@@ -307,6 +351,7 @@ export default function TendersPage() {
               <tr>
                 <th className="w-8 p-2 font-medium"></th>
                 <th className="p-2 font-medium">Fit</th>
+                <th className="p-2 font-medium">Status</th>
                 <th className="p-2 font-medium">Authority</th>
                 <th className="p-2 font-medium">Title</th>
                 <th className="p-2 font-medium">Category</th>
@@ -319,6 +364,9 @@ export default function TendersPage() {
             </thead>
             <tbody>
               {tenders.map((t) => {
+                // Defense in depth: the API already hides expired rows, so a
+                // stale cache serving one must not put it on the board.
+                if (isClosedOrExpired(t)) return null;
                 const detail = details[t.id];
                 const isExpanded = expandedId === t.id;
                 const keywords = detail?.matched_keywords || t.matched_keywords || [];
@@ -340,13 +388,31 @@ export default function TendersPage() {
                         <Badge tone={FIT_TONE[t.fit_classification || ""] || "outline"} className="font-sans tracking-wide">
                           {FIT_LABEL[t.fit_classification || ""] || "—"}
                         </Badge>
+                        {isClosingSoon(t) && (
+                          <Badge tone="warning" className="ml-1 font-sans tracking-wide">
+                            Closing soon
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="p-2">
+                        {t.status ? (
+                          <Badge tone={STATUS_TONE[t.status] || "outline"} className="font-sans tracking-wide">
+                            {STATUS_LABEL[t.status] || t.status}
+                          </Badge>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td className="p-2">{t.issuing_authority || "—"}</td>
                       <td className="max-w-md p-2">{t.title}</td>
                       <td className="p-2">{t.category || "—"}</td>
                       <td className="p-2">{t.location || "—"}</td>
                       <td className="whitespace-nowrap p-2">{fmtValue(t)}</td>
-                      <td className="whitespace-nowrap p-2">{fmtDate(t.deadline)}</td>
+                      <td className={`whitespace-nowrap p-2 ${
+                        isClosingSoon(t) ? "text-destructive" : ""
+                      }`}>
+                        {t.deadline ? fmtDate(t.deadline) : "—"}
+                      </td>
                       <td className="p-2">{t.source_name || "—"}</td>
                       <td className="p-2">
                         {t.source_url && (
@@ -363,7 +429,7 @@ export default function TendersPage() {
                     </tr>
                     {isExpanded && (
                       <tr className="border-border bg-muted/20 border-t">
-                        <td colSpan={10} className="p-4">
+                        <td colSpan={11} className="p-4">
                           {detail ? (
                             <div className="flex flex-col gap-3">
                               <div>
@@ -407,7 +473,7 @@ export default function TendersPage() {
               })}
               {!tenders.length && (
                 <tr>
-                  <td colSpan={10} className="text-text-tertiary p-6 text-center">
+                  <td colSpan={11} className="text-text-tertiary p-6 text-center">
                     No tenders. Run a scan or adjust filters.
                   </td>
                 </tr>

@@ -39,6 +39,22 @@ class _FakeTracker:
         self.check_calls += 1
 
 
+@pytest.fixture(autouse=True)
+def _stub_expired_tender_sync(monkeypatch):
+    """run_cycle syncs expired/stale tenders before AND after the scan; stub it
+    so the cycle never opens a real connection, and record calls for ordering."""
+    calls = []
+
+    async def _sync():
+        calls.append("sync")
+        return {"closed_past_deadline": 0, "closed_stale": 0}
+
+    monkeypatch.setattr(
+        scheduler_run.repository, "sync_expired_tenders", _sync
+    )
+    return calls
+
+
 @pytest.mark.asyncio
 async def test_working_day_sends_and_marks_the_durable_digest_queue(monkeypatch):
     notification_id = uuid4()
@@ -151,3 +167,28 @@ async def test_failed_delivery_keeps_notifications_pending(monkeypatch):
     assert result == {"scan_succeeded": True, "digest_count": 0}
     assert mark_calls == 0
     assert len(orchestrator.email.sent_tenders) == 1
+
+
+@pytest.mark.asyncio
+async def test_cycle_syncs_expired_tenders_before_and_after_the_scan(
+    monkeypatch, _stub_expired_tender_sync
+):
+    # Sync first so the scan, the digest queue and the board all start from a
+    # clean state. Sync again afterwards: the scan backfills deadlines on rows
+    # stored undated, and those rows must close within THIS cycle rather than
+    # sitting as 'new' until tomorrow.
+    orchestrator = _FakeOrchestrator()
+    tracker = _FakeTracker()
+
+    async def traced_scan():
+        # append to the same list as the sync stub so the interleaving is real
+        _stub_expired_tender_sync.append("scan")
+        return []
+
+    monkeypatch.setattr(scheduler_run, "ScannerOrchestrator", lambda: orchestrator)
+    monkeypatch.setattr(scheduler_run, "MilestoneTracker", lambda: tracker)
+    monkeypatch.setattr(orchestrator, "run_daily_scan", traced_scan)
+
+    await scheduler_run.run_cycle(now=datetime(2026, 7, 27, 6, 0))
+
+    assert _stub_expired_tender_sync == ["sync", "scan", "sync"]

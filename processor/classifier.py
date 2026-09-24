@@ -110,12 +110,21 @@ class TenderClassifier:
         return None
             
     def _build_prompt(self, raw: RawTender, doc_text: str) -> str:
+        # Temporal context: without the current date the model cannot tell a
+        # live notice from an archived one, which is how a tender closed in
+        # March 2024 surfaced as a current Strong Fit. The LLM only annotates
+        # (rationale/uncertainty) — whether the row is closed stays a database
+        # lifecycle concern.
+        from datetime import date
         prompt = f"""
         Please classify the following tender based on your guidelines.
         
+        CURRENT DATE: {date.today().isoformat()}
         TITLE: {raw.title}
         AUTHORITY: {raw.issuing_authority or 'Unknown'}
         VALUE: {raw.value or 'Unknown'}
+        SUBMISSION DEADLINE: {raw.deadline or 'Unknown/Unstated'}
+        PUBLICATION DATE: {raw.publication_date or 'Unknown/Unstated'}
         DESCRIPTION: {raw.description or 'None'}
         """
         

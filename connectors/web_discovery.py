@@ -58,7 +58,80 @@ _LISTING_TITLE_RE = re.compile(
 )
 
 # Already decided — an awarded contract is not an opportunity.
-_CLOSED_MARKERS = ("awarded", "/contract/", "/result", "cancelled")
+_CLOSED_MARKERS = ("awarded", "/contract/", "slafds", "/result", "cancelled")
+
+# NIC eProcurement ("nicgep") portals — mptenders.gov.in, and any other state
+# running the same Tapestry app (eprocure.<state>.gov.in shapes aside, the
+# /nicgep/app path is the fingerprint). Three reasons these cannot be scraped
+# usefully:
+#   1. The per-tender view (FrontEndViewTender&sp=<opaque session handle>)
+#      renders shell content with no tender data and no deadline, and the
+#      handle expires — verified live 24-09-2026.
+#   2. The only data-bearing pages are table listings (Active Tenders, Tenders
+#      in Archive) whose many rows' closing dates get mis-attributed to a
+#      single stored row.
+#   3. The archive listing is captcha-gated, so it cannot be read at all.
+# These portals also produce the worst failure class in the pipeline: SERP
+# titles for archived MP tenders read like live notices ("Tenders Archived"),
+# carry no year-bearing path for the archival filter, and their static title
+# ("eProcurement System Government of Madhya Pradesh") matches nothing — so
+# expired tenders sailed through discovery, stored undated or with a borrowed
+# closing date. Aggregators (TenderTiger/Tender247) already carry MP tenders
+# with real deadlines, so nothing biddable is lost by dropping the portal here.
+_NICGEP_HOST_MARKERS = ("nicgep",)
+
+# The portal's page names — matched in the query string alongside the host
+# check so a different host serving the same app is still caught.
+_NICGEP_PAGE_MARKERS = (
+    "page=frontendtendersinarchive",
+    "page=frontendlatestactivetenders",
+    "page=frontendtenderview",
+    "page=frontendviewtender",
+    "page=frontendadvancedsearchresult",
+    "page=webtenderstatuslists",
+    "tenders in archive",
+)
+
+# Archival URLs. Government sites keep tender PDFs forever under year-bearing
+# paths (/files_2024/, /2024/, tenders2024.pdf), and search engines happily
+# surface them years later — this is where pre-2026 notices came from. Only
+# matches URL paths and titles, never body text: a live notice may legitimately
+# quote last year's figures. Matches 2010-2029 so the current year is captured
+# too and the comparison below decides freshness — hardcoding the cutoff year
+# here would silently stop matching next January.
+_STALE_YEAR_RE = re.compile(
+    r"(?:files[_-]?|tenders?[_-]?|/|\b)(20(?:1\d|2[0-9]))\b(?!\d)", re.I
+)
+
+
+def _current_procurement_year() -> int:
+    """Indian procurement crosses the fiscal year: a notice published in Jan
+    belongs to the year before its April–March cycle. Before ~April, treat the
+    PREVIOUS year as still-current so live Jan–Mar notices aren't dropped."""
+    today = datetime.now()
+    return today.year if today.month >= 4 else today.year - 1
+
+
+def _is_nicgep_portal(url: str, title: str) -> bool:
+    """True for NIC eProcurement portal pages (mptenders.gov.in et al).
+
+    The /nicgep/ app path is the fingerprint — every page of the portal,
+    including the bare /nicgep/app root, lives under it. The Tapestry page
+    names are checked too for hosts that proxy the app without carrying the
+    marker. The SERP title is also checked because the archive page's indexed
+    title is exactly "Tenders Archived" — the shape that surfaced expired MP
+    tenders as if they were live notices.
+    """
+    parts = urlsplit(url or "")
+    host = (parts.hostname or "").lower()
+    path = (parts.path or "").lower()
+    if "nicgep" in host or path.startswith("/nicgep") or "/nicgep/" in path:
+        return True
+    blob = f"{parts.path}?{parts.query}".lower()
+    if any(marker in blob for marker in _NICGEP_PAGE_MARKERS):
+        return True
+    return (host.endswith((".gov.in", ".nic.in"))
+            and "tenders in archive" in (title or "").lower())
 
 
 def _is_tender_page(url: str, title: str) -> bool:
@@ -80,11 +153,33 @@ def _is_tender_page(url: str, title: str) -> bool:
 
     if "tender" in host and not host.endswith((".gov.in", ".nic.in")):
         return False
+    if _is_nicgep_portal(url, title):
+        return False
     if any(marker in blob for marker in _LISTING_URL_MARKERS):
         return False
     if any(marker in blob for marker in _CLOSED_MARKERS):
         return False
+    if _has_stale_year(parts.path or "", title or ""):
+        return False
     return not _LISTING_TITLE_RE.search(title or "")
+
+
+def _has_stale_year(url_path: str, title: str) -> bool:
+    """True when the URL path carries only past years.
+
+    A year-bearing directory path on a government file server is a strong
+    archival signal, and a title that quotes the CURRENT year means the notice
+    is live regardless of where it is stored — so the title can veto the drop.
+    A title-only year never drops anything on its own: titles quote old years
+    for all sorts of reasons, and the deadline gate in daily_scan is the right
+    judge for those.
+    """
+    current = _current_procurement_year()
+    path_years = {int(m.group(1)) for m in _STALE_YEAR_RE.finditer(url_path or "")}
+    if not path_years or any(y >= current for y in path_years):
+        return False
+    title_years = {int(m.group(1)) for m in _STALE_YEAR_RE.finditer(title or "")}
+    return not any(y >= current for y in title_years)
 
 
 class WebDiscoveryConnector:
@@ -112,8 +207,11 @@ class WebDiscoveryConnector:
         skipped = 0
         with httpx.Client(timeout=20) as client:
             for kw in keywords:
-                # one query template per keyword keeps the free-tier spend bounded
-                query = _QUERY_TEMPLATES[0].format(kw=kw)
+                # one query template per keyword keeps the free-tier spend bounded.
+                # Anchored to the current procurement year so engines prioritise
+                # live notices over the archival PDFs that otherwise dominate.
+                query = (f"{_QUERY_TEMPLATES[0].format(kw=kw)} "
+                         f"{_current_procurement_year()}")
                 # Union of both engines — redundancy if one is rate-limited/down.
                 items = []
                 if self.searxng_url:

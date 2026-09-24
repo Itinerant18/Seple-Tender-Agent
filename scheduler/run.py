@@ -44,11 +44,27 @@ async def run_cycle(*, now: datetime | None = None) -> dict:
     scan_succeeded = False
     digest_count = 0
 
+    # Auto-close expired/stale tenders before the scan so the board, the
+    # digest queue and this cycle's new rows all start from a clean state.
+    try:
+        await repository.sync_expired_tenders()
+    except Exception:
+        logger.exception("Expired-tender sync failed; continuing with scan")
+
     try:
         await orchestrator.run_daily_scan()
         scan_succeeded = True
     except Exception:
         logger.exception("Daily scan failed")
+
+    # …and once more after it. The scan backfills deadlines on rows that were
+    # stored undated, and such a row is expired the instant it is read — without
+    # this second pass it stays status='new' until tomorrow's cycle even though
+    # the board already hides it, and the next scan repeats the same work.
+    try:
+        await repository.sync_expired_tenders()
+    except Exception:
+        logger.exception("Expired-tender sync failed after scan; continuing")
 
     if current_time.weekday() in WORKING_DAYS:
         try:

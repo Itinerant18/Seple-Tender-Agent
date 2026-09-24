@@ -84,3 +84,66 @@ def test_short_deadline_relevant_fit_still_alerts():
 
     assert should_alert is True
     assert "Short Deadline" in reason
+
+
+# --- staleness: tenders that state no deadline --------------------------------
+# Without this branch, web-discovered rows with a NULL deadline lived outside
+# every expiry check forever and could still fire alerts.
+
+def test_undated_tender_past_the_staleness_window_does_not_alert():
+    tender = _tender(
+        deadline=None,
+        created_at=datetime.now() - timedelta(days=AlertRulesEngine.STALE_DAYS + 10),
+        value_inr=AlertRulesEngine.HIGH_VALUE_THRESHOLD,
+        fit_classification=FitLabel.STRONG_FIT,
+        product_categories=["Video Surveillance"],
+    )
+
+    assert AlertRulesEngine.is_stale(tender) is True
+    assert AlertRulesEngine.evaluate(tender) == (False, None)
+
+
+def test_undated_tender_inside_the_window_still_alerts():
+    tender = _tender(
+        deadline=None,
+        created_at=datetime.now() - timedelta(days=2),
+        value_inr=AlertRulesEngine.HIGH_VALUE_THRESHOLD,
+        product_categories=["Video Surveillance"],
+    )
+
+    assert AlertRulesEngine.is_stale(tender) is False
+    should_alert, _ = AlertRulesEngine.evaluate(tender)
+    assert should_alert is True
+
+
+def test_publication_date_anchors_staleness_when_created_at_is_recent():
+    # The Bolangir shape: an old notice re-scraped recently. COALESCE order is
+    # publication_date first — a fresh created_at must not launder it.
+    tender = _tender(deadline=None, created_at=datetime.now())
+    tender.publication_date = (datetime.now() - timedelta(days=60)).date()
+
+    assert AlertRulesEngine.is_stale(tender) is True
+
+
+def test_undated_tender_with_no_timestamps_at_all_counts_as_stale():
+    # Nothing to age from: never alert on data we know nothing about.
+    tender = _tender(deadline=None, created_at=None, scraped_at=None)
+
+    assert AlertRulesEngine.is_stale(tender) is True
+
+
+def test_expired_deadline_suppresses_even_with_a_fresh_created_at():
+    tender = _tender(
+        deadline=datetime.now() - timedelta(days=1),
+        created_at=datetime.now(),
+    )
+
+    assert AlertRulesEngine.is_stale(tender) is True
+
+
+def test_stale_window_mirrors_the_repository_constant():
+    # The board filter and the alert engine must agree on "stale" or a tender
+    # is hidden from the board while still being alerted on (or vice versa).
+    from database.repository import STALE_DAYS
+
+    assert AlertRulesEngine.STALE_DAYS == STALE_DAYS

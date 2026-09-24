@@ -30,17 +30,78 @@ class FieldExtractor:
     # with a NULL deadline: 1,670 rows, 100% of that source, permanently exempt
     # from the board's expiry filter and showing an em dash in the UI.
     # Only the date text is captured — parse_datetime owns the format zoo.
+    #
+    # Date forms covered by the capture group:
+    #   15-03-2024 / 15/03/2024 / 15 Mar 2024 / 15-Aug-2026  (day-first)
+    #   15.03.2024 / 15.03.26                                (Indian dot form)
+    #   15th March 2024 / 1st April 2026                     (ordinals)
+    #   2026-09-15 / 2026-09-15T14:30                        (ISO)
+    # The middle component of the slash/dot forms is a month: digits or a name,
+    # never a 4-digit year. Allowing [A-Za-z0-9]{2,9} there let "...06-2023 11..."
+    # on a stripped page parse as a date, and a wrong deadline is worse than none
+    # — the board would show a tender closing before it does. The dot form has
+    # the same guard: "06.2023" alone (month.year) must not match, so a two-digit
+    # day component is mandatory.
+    # Label quality first. A wrong deadline is worse than none, and portals
+    # print the tender-document SALE cutoff ("CLOSING DATE OF SALE FROM …"),
+    # the clarification cutoff and the publication cutoff ABOVE the bid
+    # deadline. search() takes the first hit, so accepting those labels stored
+    # a date that is never later than the real bid close — which hides a
+    # still-live tender from the board. Blocking them lets the same search walk
+    # on to "CLOSING DATE OF SUBMISSION FORM …" and record the real deadline.
     DEADLINE_PATTERN = re.compile(
         r'(?i)(?:bid\s+submission\s+(?:end|closing)|last\s+date(?:\s*(?:&|and)\s*time)?'
-        r'|due\s+date|closing\s+date|submission\s+(?:end\s+date|deadline)|end\s+date)'
-        r'[^\n:]{0,40}[:\-]\s*'
-        # The middle component is a month: digits or a name, never a 4-digit
-        # year. Allowing [A-Za-z0-9]{2,9} there let "...06-2023 11..." on a
-        # stripped page parse as a date, and a wrong deadline is worse than none
-        # — the board would show a tender closing before it does.
+        r'(?:\s+(?:of|for)\s+(?:bid\s+)?submission)?'
+        r'|due\s+date'
+        r'|closing\s+date(?!\s+(?:of|for)\s+(?:tender\s+|document\s+)?'
+        r'(?:sale|clarification|publication))'
+        r'|submission\s+(?:end\s+date|deadline)'
+        r'|bids?\s+(?:close|closing)\s+on|end\s+date)'
+        # Non-greedy bridge: greedy backtracking walks prefixes from the
+        # longest down, so "…is 15-03-2024" settled on the prefix "…is 15"
+        # and captured "5-03-2024" — the right shape, the wrong day. Shortest
+        # first stops at "…is " and captures the full date.
+        r'[^\n:]{0,40}?[:\-]?\s*'
         r'(\d{1,2}[-/\s](?:\d{1,2}|[A-Za-z]{3,9})[-/\s]\d{2,4}'
         r'(?:[\s,]+\d{1,2}:\d{2}(?:\s*[APap]\.?[Mm]\.?)?)?'
+        r'|\d{1,2}\.\d{1,2}\.\d{2,4}'
+        r'|\d{1,2}(?:st|nd|rd|th)\s+[A-Za-z]{3,9}\s*,?\s*\d{4}'
+        r'(?:[\s,]+\d{1,2}:\d{2}(?:\s*[APap]\.?[Mm]\.?)?)?'
         r'|\d{4}-\d{2}-\d{2}(?:[T\s]\d{2}:\d{2})?)'
+    )
+
+    # A page that lists MANY tenders is a listing, not a notice. Its closing
+    # dates belong to different tenders, so attributing any one of them to the
+    # row being processed borrows a deadline — worse than none, because the
+    # board then trusts a date that is not this tender's. Such rows used to
+    # surface from mptenders.gov.in ("Tenders Archived") looking live with a
+    # deadline that belonged to some other row of the portal's table.
+    # Counting the labels is the shape test: a single notice states its
+    # deadline once; a portal table prints one per row (mptenders' front page
+    # alone shows ten rows with a Closing Date column). The count is computed
+    # lazily at first use so re-compiling the pattern on import stays cheap.
+    _LISTING_LABEL_THRESHOLD = 3
+
+    @classmethod
+    def _deadline_is_from_listing(cls, text: str) -> bool:
+        """True when the text looks like a multi-tender listing page.
+
+        Threshold 3 (not 2): a corrigendum notice may legitimately restate its
+        deadline alongside a reference to the original notice.
+        """
+        return len(cls.DEADLINE_PATTERN.findall(text or "")) >= cls._LISTING_LABEL_THRESHOLD
+
+    # Dates embedded in archive URLs — eprocurment portals stamp document paths
+    # like .../230220241747/notice.pdf or /20240223/tender.pdf. Stands in as a
+    # PROXY PUBLICATION DATE when the document body states none, which is what
+    # lets the staleness window classify an old upload as old. Kept separate
+    # from parse_datetime: parse_datetime is fed deadline labels, and its tests
+    # promise None on unlabelled digit soup.
+    _URL_DATE_PATTERNS = (
+        # ddmmyyyy(+optional hhmm) run together: 230220241747, 15032024
+        re.compile(r'(?:^|\D)([0-3]\d)([01]\d)((?:20)\d{2})(?:([0-2]\d)([0-5]\d))?(?:\D|$)'),
+        # yyyymmdd run together: 20240223
+        re.compile(r'(?:^|\D)((?:20)\d{2})([01]\d)([0-3]\d)(?:\D|$)'),
     )
 
     # Meetings
@@ -51,8 +112,15 @@ class FieldExtractor:
         pass
 
     def extract_all(self, text: str) -> Dict[str, Any]:
-        """Run all extraction patterns against a block of text."""
+        """Run all extraction patterns against a block of text.
+
+        A multi-tender listing page yields nothing — its dates belong to other
+        tenders, and a deadline borrowed from a table row would present an
+        expired notice as live (or a live one as expired) on the board.
+        """
         if not text:
+            return {}
+        if self._deadline_is_from_listing(text):
             return {}
             
         return {
@@ -110,7 +178,24 @@ class FieldExtractor:
             return None
 
         clean = str(text).strip()
-        if not clean or not YEAR_PATTERN.search(clean):
+        if not clean:
+            return None
+
+        # "15.03.26" — a full dot form with a 2-digit year is unambiguous,
+        # but the 4-digit-year guard below would reject it and drop the
+        # deadline back to NULL (the exact bug this pattern was widened for).
+        # Indian procurement has no pre-2000 notices: 26 → 2026.
+        short_dot = re.fullmatch(r"(\d{1,2})\.(\d{1,2})\.(\d{2})(?:\s+(\d{1,2}):(\d{2}))?", clean)
+        if short_dot:
+            day, month, year = (int(short_dot.group(i)) for i in (1, 2, 3))
+            hour = int(short_dot.group(4) or 0)
+            minute = int(short_dot.group(5) or 0)
+            try:
+                return datetime(2000 + year, month, day, hour, minute)
+            except ValueError:
+                return None
+
+        if not YEAR_PATTERN.search(clean):
             return None
 
         # ISO first: dayfirst=True would read GeM's "2026-08-11" as 8 November.
@@ -132,3 +217,35 @@ class FieldExtractor:
         """Parse common tender portal date formats into dates."""
         parsed = FieldExtractor.parse_datetime(text)
         return parsed.date() if parsed else None
+
+    @staticmethod
+    def parse_url_date(url: Optional[str]) -> Optional[datetime]:
+        """Extract a proxy publication date from an archive-style URL.
+
+        Government portals embed timestamps in document paths
+        (.../230220241747/notice.pdf, /20240223/tender.pdf). Returns None when
+        no plausible embedded date exists — a wrong proxy date would mislabel
+        a live notice as archived, so sanity requires a real month (01-12)
+        and a year in the recent past.
+        """
+        if not url:
+            return None
+        for pattern in FieldExtractor._URL_DATE_PATTERNS:
+            m = pattern.search(url)
+            if not m:
+                continue
+            groups = [g for g in m.groups() if g]
+            try:
+                if len(groups) >= 3:
+                    if len(groups[0]) == 4:  # yyyymmdd
+                        y, mo, d = int(groups[0]), int(groups[1]), int(groups[2])
+                        hh = mm = 0
+                    else:  # ddmmyyyy[hhmm]
+                        d, mo, y = int(groups[0]), int(groups[1]), int(groups[2])
+                        hh = int(groups[3]) if len(groups) > 3 else 0
+                        mm = int(groups[4]) if len(groups) > 4 else 0
+                    if 2000 <= y <= datetime.now().year and 1 <= mo <= 12 and 1 <= d <= 31:
+                        return datetime(y, mo, d, hh, mm)
+            except (ValueError, IndexError):
+                continue
+        return None

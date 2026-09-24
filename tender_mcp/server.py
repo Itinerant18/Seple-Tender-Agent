@@ -45,7 +45,8 @@ def _post(path: str, **params):
 @mcp.tool()
 def list_tenders(fit: str | None = None, status: str | None = None,
                  category: str | None = None, source: str | None = None,
-                 min_value: float | None = None, limit: int = 50) -> dict:
+                 min_value: float | None = None, limit: int = 50,
+                 closing_soon: bool = False) -> dict:
     """List tenders from the pipeline database, newest first.
 
     fit: strong_fit | potential_fit | low_fit
@@ -53,9 +54,11 @@ def list_tenders(fit: str | None = None, status: str | None = None,
     category: e.g. 'CCTV', 'Fire Alarm', 'Access Control'
     source: TenderTiger | Tender247 | CPPP | GeM
     min_value: minimum tender value in INR
+    closing_soon: true narrows to live tenders close to their closing date
     """
     return _get("/api/tenders", fit=fit, status=status, category=category,
-                source=source, min_value=min_value, limit=limit)
+                source=source, min_value=min_value, limit=limit,
+                closing_soon=closing_soon)
 
 
 @mcp.tool()

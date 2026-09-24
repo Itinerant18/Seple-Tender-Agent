@@ -3,12 +3,22 @@ SEPLE Tender Notifier — Alert Rules
 Configurable engine to determine if a tender warrants an instant alert.
 Implements PRD §8.2
 """
+import logging
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, date, timedelta
 from database.models import Tender, FitLabel
 
+logger = logging.getLogger(__name__)
+
+
 class AlertRulesEngine:
-    
+
+    # A tender that states no deadline is treated as live only for this long
+    # after it was created/scraped. Mirrors database.repository.STALE_DAYS —
+    # kept as a literal here because alert rules must stay importable without
+    # a database connection, and the two must never drift apart silently.
+    # (The expiry test asserts the mirror; bump both together.)
+    STALE_DAYS = 30
     # These would ideally come from config/DB
     STRATEGIC_CUSTOMERS = [
         "isro", "drdo", "indian navy", "indian army", "air force",
@@ -41,12 +51,37 @@ class AlertRulesEngine:
         return deadline < now
 
     @classmethod
+    def is_stale(cls, tender: Tender) -> bool:
+        """True when the tender can no longer be acted on.
+
+        A stated deadline in the past is expired. A tender with NO deadline is
+        stale once its publication date (or, failing that, its created/scraped
+        timestamp) is older than STALE_DAYS — without this branch,
+        web-discovered rows with a NULL deadline lived outside every expiry
+        check forever and could still fire alerts.
+        """
+        if tender.deadline is not None:
+            return cls._is_expired(tender.deadline)
+        anchor = (getattr(tender, "publication_date", None)
+                  or tender.created_at or tender.scraped_at)
+        if anchor is None:
+            # No deadline and no timestamp to age from: treat as stale rather
+            # than alert on something we know nothing about.
+            return True
+        if isinstance(anchor, date) and not isinstance(anchor, datetime):
+            # publication_date is a plain date — give it midnight so the
+            # comparison below has a datetime to work with.
+            anchor = datetime(anchor.year, anchor.month, anchor.day)
+        now = datetime.now(anchor.tzinfo) if anchor.tzinfo else datetime.now()
+        return anchor < now - timedelta(days=cls.STALE_DAYS)
+
+    @classmethod
     def evaluate(cls, tender: Tender) -> tuple[bool, Optional[str]]:
         """
         Evaluate if a tender should trigger an instant alert.
         Returns (should_alert, reason)
         """
-        if cls._is_expired(tender.deadline):
+        if cls.is_stale(tender):
             return False, None
 
         reasons = []

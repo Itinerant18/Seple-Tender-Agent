@@ -136,6 +136,12 @@ Use these keyword groups as **signals interpreted in context**, not strict filte
 
 Every tender receives exactly one label:
 
+### CRITICAL RULE — Temporal Validity First
+**The prompt states the CURRENT DATE, the SUBMISSION DEADLINE and the PUBLICATION DATE.** Before judging scope fit, check whether the procurement is still open:
+- If the submission deadline is in the past relative to the CURRENT DATE, or the publication date is more than ~30 days old with no deadline stated, this is an **archived historical notice**. It cannot be bid on regardless of fit.
+- Still assign the scope-fit label as usual, but state in `matching_rationale` that the notice is archived/historical (e.g. "Strong scope match, but the notice closed on 15.03.2024 — archived historical record, not a live opportunity").
+- Never present a past-deadline tender as a current opportunity, even when it is a Strong Fit.
+
 ### Strong Fit ✅
 Assign when ALL of these are true:
 - Clear match with one or more core business areas (§Company Profile)

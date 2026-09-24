@@ -23,6 +23,13 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting SEPLE Tender API...")
     await init_schema()
+    # Auto-close expired/stale tenders so the dashboard never shows a 2024
+    # notice as live. A DB hiccup here must not keep the API down — the next
+    # scan cycle syncs again.
+    try:
+        await repository.sync_expired_tenders()
+    except Exception:
+        logger.exception("Expired-tender sync failed at startup; continuing")
     yield
     # Shutdown
     logger.info("Shutting down SEPLE Tender API...")
@@ -64,13 +71,16 @@ async def get_tenders(
     category: Optional[str] = None,
     min_value: Optional[float] = None,
     q: Optional[str] = Query(None, max_length=200),
-    include_expired: bool = Query(False),
+    closing_soon: bool = Query(False),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0)
 ):
     """List tenders with optional filtering.
 
-    Closed tenders nobody triaged are hidden unless include_expired=true.
+    Expired and stale tenders are hidden in every view — there is no flag that
+    reveals them. closing_soon=true narrows the board to live tenders close
+    to their closing date (the urgent view). Every row carries a computed
+    is_expired flag for badging.
     """
     # Over-fetch one row to answer "is there a next page". A COUNT(*) would need
     # the WHERE builder factored out of list_tenders for a number the UI does not
@@ -82,7 +92,7 @@ async def get_tenders(
         category=category,
         min_value=min_value,
         q=q,
-        include_expired=include_expired,
+        closing_soon=closing_soon,
         limit=limit + 1,
         offset=offset
     )

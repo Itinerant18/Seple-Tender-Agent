@@ -9,7 +9,7 @@ import logging
 from datetime import datetime
 
 from database import repository
-from database.models import Tender, FitLabel, Notification, NotificationType
+from database.models import Tender, TenderStatus, FitLabel, Notification, NotificationType
 from connectors import TenderTigerConnector, Tender247Connector, GeMConnector, WebDiscoveryConnector
 from connectors.scrape_chain import scrape_page
 from processor import FieldExtractor, TenderClassifier, Deduplicator, EligibilityChecker
@@ -135,21 +135,24 @@ class ScannerOrchestrator:
             logger.warning("Unparsed %s deadline: %r", raw.source, raw.deadline)
 
         existing = await repository.find_by_fingerprint(fingerprint)
-        if existing:
-            await repository.patch_missing_fields(
-                fingerprint,
-                deadline=deadline,
-                category=raw.category,
-                location=raw.location,
-            )
-            logger.debug(f"Skipping duplicate tender: {raw.title}")
-            return None
 
         # Web-discovered rows carry only a search snippet — pull the full page
         # text via the scrape chain (Firecrawl→context.dev→Zyte) so the
         # classifier and extractor see the real scope, not just the title.
+        #
+        # This runs BEFORE the duplicate check on purpose. A row stored before
+        # its portal's closing-date label matched DEADLINE_PATTERN keeps a NULL
+        # deadline forever otherwise: the duplicate path below never scraped, so
+        # patch_missing_fields() was always handed parse(raw.deadline) — NULL for
+        # every web row. That is how the BHEL notice closing 29-02-2024 sat on a
+        # 2026 board as an undated row whose freshly-discovered created_at kept it
+        # inside the staleness window. A row that already has a deadline skips the
+        # fetch, so a stable corpus costs one request per still-undated row per
+        # scan rather than one per row.
         doc_text = None
-        if raw.source in ("WebDiscovery", "WebSearch") and raw.url:
+        if (raw.source in ("WebDiscovery", "WebSearch") and raw.url
+                and deadline is None
+                and (existing is None or not existing.get("deadline"))):
             doc_text = await asyncio.to_thread(lambda: scrape_page(raw.url)["markdown"]) or None
 
         extracted = self.extractor.extract_all(doc_text or raw.description or raw.title)
@@ -159,6 +162,27 @@ class ScannerOrchestrator:
         # was computed and thrown away, and every WebSearch row stored a NULL.
         if deadline is None:
             deadline = FieldExtractor.parse_datetime(extracted.get("deadline"))
+
+        if existing:
+            # Backfilled only: patch_missing_fields COALESCEs, so a deadline the
+            # pipeline already recorded is never overwritten here.
+            await repository.patch_missing_fields(
+                fingerprint,
+                deadline=deadline,
+                category=raw.category,
+                location=raw.location,
+            )
+            logger.debug(f"Skipping duplicate tender: {raw.title}")
+            return None
+
+        # Proxy publication date from archive-style URLs (.../230220241747/…).
+        # Without it, an old upload that states no dates looks fresh forever.
+        publication_date = FieldExtractor.parse_date(raw.publication_date)
+        if publication_date is None and raw.source in ("WebDiscovery", "WebSearch"):
+            url_date = FieldExtractor.parse_url_date(raw.url)
+            if url_date is not None:
+                publication_date = url_date.date()
+                logger.info("URL-embedded publication date %s for %s", publication_date, raw.url)
 
         # A tender notice says when bids close. An index page, a product listing,
         # a staff page or a news article about a tender does not — and after the
@@ -196,7 +220,7 @@ class ScannerOrchestrator:
             emd_amount=extracted.get("emd"),
             tender_fee=extracted.get("fee"),
             deadline=deadline,
-            publication_date=FieldExtractor.parse_date(raw.publication_date),
+            publication_date=publication_date,
             issuing_authority=raw.issuing_authority,
             location=raw.location,
             source_id=await repository.get_source_id(raw.source),
@@ -211,13 +235,27 @@ class ScannerOrchestrator:
             scraped_at=datetime.utcnow(),
         )
 
+        # The classifier judges scope; the clock decides whether the
+        # procurement is still open. Store a provably expired/stale tender as
+        # closed immediately — an ancient notice must never appear on the
+        # active board even once, let alone wait for sync_expired_tenders.
+        if AlertRulesEngine.is_stale(tender):
+            tender.status = TenderStatus.CLOSED
+            logger.info("Storing expired/stale tender as closed: %s", tender.title)
+
         tender_id = await repository.upsert_tender(tender)
         tender.id = tender_id
         analysis.tender_id = tender_id
         await repository.save_analysis(analysis)
 
         if tender.fit_classification in (FitLabel.STRONG_FIT, FitLabel.POTENTIAL_FIT):
-            await repository.queue_digest_tender(tender_id)
+            # An expired deadline or a stale no-deadline row must not reach the
+            # digest even though it classified well — the classifier judges
+            # scope, not whether the procurement is still open.
+            if AlertRulesEngine.is_stale(tender):
+                logger.info("Skipping digest for expired/stale tender: %s", tender.title)
+            else:
+                await repository.queue_digest_tender(tender_id)
 
         # 3. Instant Alerts
         should_alert, reason = AlertRulesEngine.evaluate(tender)
