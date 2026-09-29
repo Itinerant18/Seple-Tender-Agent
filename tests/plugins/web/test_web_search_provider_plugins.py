@@ -68,23 +68,27 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class TestBundledPluginsRegister:
-    """All eight bundled web plugins discover and register correctly."""
+    """Every bundled web plugin discovers and registers correctly."""
 
-    def test_all_seven_plugins_present_in_registry(self) -> None:
+    def test_every_bundled_plugin_dir_registers_a_provider(self) -> None:
+        # Invariant, not a snapshot: each plugins/web/<dir> package must
+        # register a provider whose name is the dir name with hyphens.
+        # Adding a plugin dir without a register() call fails here; adding
+        # a new plugin does not require touching this test.
+        from pathlib import Path
+
         _ensure_plugins_loaded()
         from agent.web_search_registry import list_providers
 
+        plugins_web = Path(__file__).resolve().parents[3] / "plugins" / "web"
+        expected = sorted(
+            d.name.replace("_", "-")
+            for d in plugins_web.iterdir()
+            if d.is_dir() and (d / "__init__.py").exists()
+        )
+        assert expected, "no bundled web plugin dirs found"
         names = sorted(p.name for p in list_providers())
-        assert names == [
-            "brave-free",
-            "ddgs",
-            "exa",
-            "firecrawl",
-            "parallel",
-            "searxng",
-            "tavily",
-            "xai",
-        ]
+        assert names == expected
 
     @pytest.mark.parametrize(
         "plugin_name,expected_search,expected_extract",
