@@ -212,3 +212,59 @@ def test_archive_title_on_a_gov_host_is_dropped():
 def test_the_nicgep_rule_does_not_swallow_ordinary_gov_notices():
     assert keeps("https://mp.gov.in/tenders/notice/8812", "Supply of fire alarm system")
     assert keeps("https://dept.nic.in/files/notice.pdf", "AMC of CCTV surveillance system")
+
+
+# --- what actually leaked onto the board (2026-09-29 audit) ---------------------
+# 105 undated live rows, every one from WebSearch: 52 were eprocure/etenders
+# per-organisation listings under counted titles, the rest archive/index pages,
+# EOI boards and social posts. None had a deadline of its own to expire on.
+
+def test_eprocure_organisation_listings_are_dropped_on_non_nicgep_hosts():
+    for url, title in (
+        ("https://eprocure.gov.in/eprocure/app?component=%24DirectLink"
+         "&page=FrontEndTendersByOrganisation&service=direct&sp=SoF6",
+         "68 - eProcurement System Government of India"),
+        ("https://etenders.gov.in/eprocure/app?component=%24DirectLink"
+         "&page=FrontEndTendersByOrganisation&service=direct",
+         "156 - Government eProcurement System"),
+        ("https://eproc.punjab.gov.in/nicgep/app?page=FrontEndTendersByLocation&service=direct",
+         "47 - eProcurement System Government of Punjab"),
+    ):
+        assert not keeps(url, title), url
+
+
+def test_counted_portal_titles_are_dropped_even_without_the_word_tender():
+    assert not keeps("https://eprocure.gov.in/eprocure/app?x=1", "98 - eProcurement System Government of India")
+    assert not keeps("https://eprocurentpc.nic.in/x", "553 - NTPC Limited eProcurement Portal")
+
+
+def test_archive_open_and_alert_index_titles_are_dropped():
+    for url, title in (
+        ("https://spmnarmadapuram.spmcil.com/en/tenders-archived/", "Tenders Archived"),
+        ("https://vmmc-sjh.mohfw.gov.in/archive-tenders",
+         "Archive Tenders | Official Website of VMMC & Safdarjung Hospital"),
+        ("https://bcplonline.co.in/tender/index",
+         "Open Tenders - Brahmaputra Cracker and Polymer Limited"),
+        ("https://vmmc-sjh.mohfw.gov.in/tenders", "Tenders / Procurement | Safdarjung"),
+        ("https://www.nhpcindia.com/welcome/tender?classification=2", "Tender Title - NHPC"),
+        ("https://gil.gujarat.gov.in/tenders", "Manpower Tender Alerts Are Live! Government Departments"),
+    ):
+        assert not keeps(url, title), url
+
+
+def test_social_posts_are_dropped():
+    assert not keeps("https://www.instagram.com/p/DZjktqwk29M/",
+                     "GeMBidNotification NIC invites bids via #GeM for AMC of CCTV")
+    assert not keeps("https://www.linkedin.com/posts/someone_tender-activity-1",
+                     "Supply of fire alarm system tender")
+
+
+def test_single_notices_on_the_same_hosts_survive():
+    assert keeps("https://www.nhpcindia.com/welcome/tender_detail/7841.html",
+                 "NIT No.:2025_NHPC_849236_1 - NHPC")
+    assert keeps("https://newmangaloreport.gov.in/procurement-vehicle-rfid-cards-nmpa",
+                 "Procurement of Vehicle RFID Cards for NMPA.")
+    assert keeps("https://www.mcgm.gov.in/irj/go/km/docs/documents/Tenders-New/ETH/ETH_8000114697_010926.pdf",
+                 "GEM/2026/B/7914536")
+    assert keeps("https://eprocure.gov.in/eprocure/app?notice=123",
+                 "Supply and installation of fire hydrant system")

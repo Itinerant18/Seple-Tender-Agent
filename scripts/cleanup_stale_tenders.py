@@ -38,7 +38,7 @@ from dotenv import load_dotenv  # noqa: E402
 from database import repository  # noqa: E402
 from database.db import close_pool, get_connection, init_schema  # noqa: E402
 from database.models import TenderStatus  # noqa: E402
-from database.repository import STALE_DAYS  # noqa: E402
+from database.repository import _STALE_CUTOFF_SQL  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("cleanup_stale_tenders")
@@ -64,10 +64,10 @@ async def _count_pending(conn) -> dict:
     )
     stale = await conn.fetchval(
         f"""
-        SELECT COUNT(*) FROM tenders
-        WHERE status = 'new' AND deadline IS NULL
-          AND COALESCE(publication_date::timestamp, created_at)
-                < NOW() - INTERVAL '{STALE_DAYS} days'
+        SELECT COUNT(*) FROM tenders t
+        WHERE t.status = 'new' AND t.deadline IS NULL
+          AND COALESCE(t.publication_date::timestamp, t.created_at)
+                < {_STALE_CUTOFF_SQL}
         """
     )
     return {

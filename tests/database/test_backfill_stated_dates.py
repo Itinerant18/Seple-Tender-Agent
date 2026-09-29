@@ -122,7 +122,7 @@ def test_digest_expires_past_deadline_stale_and_terminal_rows(fake_conn):
     # the new branch kills stale undated rows and triaged-away rows
     assert "closed" in updates[1] and "disqualified" in updates[1]
     assert "COALESCE(t.publication_date::timestamp, t.created_at)" in updates[1]
-    assert f"INTERVAL '{repository.STALE_DAYS} days'" in updates[1]
+    assert repository._STALE_CUTOFF_SQL in updates[1]
     for query in updates:
         assert "n.status = 'pending'" in query  # sent rows are never revisited
 

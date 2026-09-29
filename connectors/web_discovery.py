@@ -49,12 +49,22 @@ _LISTING_URL_MARKERS = (
 
 _LISTING_TITLE_RE = re.compile(
     r"^\s*\d+\s+.*\btenders?\b"          # "62 Cctv Amc Tenders In India 2026"
-    r"|^\s*(?:latest|live|all|top)\b.*\btenders?\b"
+    r"|^\s*\d+\s*-\s+"                   # "68 - eProcurement System Government of India"
+    r"|^\s*(?:latest|live|all|top|open)\b.*\btenders?\b"
     r"|^\s*search\s+tenders?\b"
-    r"|^\s*tenders?\s*[-–|]"             # "Tenders - Invest India"
+    r"|^\s*tenders?\s*[-–|/]"            # "Tenders - Invest India", "Tenders / Procurement"
+    r"|^\s*tender\s+title\s*[-–|]"       # portal index pages titled by their column header
+    r"|\btenders?\s+archived?\b|\barchived?\s+tenders?\b"
+    r"|\btender\s+alerts?\b"
     r"|\btenders?\s*(?:&|and)\s*(?:rfps?|eprocurement)\b"
     r"|\btenders?\s+(?:from|in)\s+\w+\s*\d{0,4}\s*$",
     re.I,
+)
+
+# Social posts about tenders are announcements, never the notice itself.
+_SOCIAL_HOSTS = (
+    "instagram.com", "facebook.com", "x.com", "twitter.com",
+    "linkedin.com", "youtube.com", "t.me",
 )
 
 # Already decided — an awarded contract is not an opportunity.
@@ -82,12 +92,15 @@ _NICGEP_HOST_MARKERS = ("nicgep",)
 
 # The portal's page names — matched in the query string alongside the host
 # check so a different host serving the same app is still caught.
+#
+# Every Tapestry front-end page (page=FrontEnd*) is either a table listing or
+# a session-handle view, so the prefix is the marker. The explicit list this
+# replaced missed FrontEndTendersByOrganisation — the per-department listing
+# that search engines index under counted titles ("68 - eProcurement System
+# Government of India") — and 52 of those landed on the board in one week,
+# each undated, each with a reference borrowed from the first row of its table.
 _NICGEP_PAGE_MARKERS = (
-    "page=frontendtendersinarchive",
-    "page=frontendlatestactivetenders",
-    "page=frontendtenderview",
-    "page=frontendviewtender",
-    "page=frontendadvancedsearchresult",
+    "page=frontend",
     "page=webtenderstatuslists",
     "tenders in archive",
 )
@@ -152,6 +165,8 @@ def _is_tender_page(url: str, title: str) -> bool:
     blob = f"{parts.path}?{parts.query}".lower()
 
     if "tender" in host and not host.endswith((".gov.in", ".nic.in")):
+        return False
+    if any(host == h or host.endswith("." + h) for h in _SOCIAL_HOSTS):
         return False
     if _is_nicgep_portal(url, title):
         return False

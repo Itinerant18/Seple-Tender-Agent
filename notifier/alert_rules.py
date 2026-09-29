@@ -19,6 +19,10 @@ class AlertRulesEngine:
     # a database connection, and the two must never drift apart silently.
     # (The expiry test asserts the mirror; bump both together.)
     STALE_DAYS = 30
+    # Mirrors database.repository.WEB_STALE_DAYS / WEB_SOURCES for the same
+    # reason: an undated web-search row is granted a week, not a month.
+    WEB_STALE_DAYS = 7
+    WEB_SOURCES = ("WebSearch", "WebDiscovery")
     # These would ideally come from config/DB
     STRATEGIC_CUSTOMERS = [
         "isro", "drdo", "indian navy", "indian army", "air force",
@@ -73,7 +77,10 @@ class AlertRulesEngine:
             # comparison below has a datetime to work with.
             anchor = datetime(anchor.year, anchor.month, anchor.day)
         now = datetime.now(anchor.tzinfo) if anchor.tzinfo else datetime.now()
-        return anchor < now - timedelta(days=cls.STALE_DAYS)
+        grace = (cls.WEB_STALE_DAYS
+                 if getattr(tender, "source_name", None) in cls.WEB_SOURCES
+                 else cls.STALE_DAYS)
+        return anchor < now - timedelta(days=grace)
 
     @classmethod
     def evaluate(cls, tender: Tender) -> tuple[bool, Optional[str]]:

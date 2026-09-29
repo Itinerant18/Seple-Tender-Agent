@@ -82,7 +82,7 @@ def test_freshness_and_status_filter_apply_by_default(captured):
     # both freshness branches: a live deadline, or no deadline but recent
     assert "t.deadline IS NOT NULL AND t.deadline >= NOW()" in query
     assert "COALESCE(t.publication_date::timestamp, t.created_at)" in query
-    assert f"INTERVAL '{repository.STALE_DAYS} days'" in query
+    assert repository._STALE_CUTOFF_SQL in query
     assert "t.status NOT IN ('closed', 'lost', 'ignored', 'disqualified')" in query
     # the old escape hatch must be gone: it kept every triaged row visible
     # forever and let NULL-deadline rows through unconditionally
@@ -105,7 +105,7 @@ def test_freshness_filter_is_unconditional_no_flag_lifts_it(captured):
     for query in (default_query, closing_soon_query):
         assert repository._ACTIVE_FRESHNESS_SQL in query
         assert "t.deadline IS NOT NULL AND t.deadline >= NOW()" in query
-        assert f"INTERVAL '{repository.STALE_DAYS} days'" in query
+        assert repository._STALE_CUTOFF_SQL in query
 
     # no historical parameter name still reaches the repository
     import inspect
@@ -200,12 +200,11 @@ def test_rows_are_counted_from_the_command_tag_not_fetchval(synced):
 
 def test_filter_and_sync_agree_on_the_staleness_window(synced):
     # A mismatch would make the board hide rows sync never closes (or vice
-    # versa) — both must interpolate the same STALE_DAYS constant.
+    # versa) — both must interpolate the same per-source cutoff expression.
     asyncio.run(repository.list_tenders())
     asyncio.run(repository.sync_expired_tenders())
 
-    window = f"INTERVAL '{repository.STALE_DAYS} days'"
-    assert window in synced["queries"][1]
+    assert repository._STALE_CUTOFF_SQL in synced["queries"][1]
 
 
 def test_closing_soon_window_mirrors_the_alert_engine():
@@ -240,3 +239,26 @@ def test_set_tender_deadline_fills_only_null_and_is_audited(monkeypatch):
     assert "deadline IS NULL" in update_query  # never overwrites a real date
     audit_query, _ = executed[1]
     assert "audit_log" in audit_query
+
+
+def test_staleness_grace_is_shorter_for_web_discovery():
+    # One cutoff expression is shared by the board, the detail view, the
+    # auto-close and the digest; it resolves the grace per row from the
+    # source name, so an undated WebSearch row leaves the board after
+    # WEB_STALE_DAYS while a portal row keeps the full STALE_DAYS.
+    sql = repository._STALE_CUTOFF_SQL
+    assert repository.WEB_STALE_DAYS < repository.STALE_DAYS
+    assert f"THEN {repository.WEB_STALE_DAYS} ELSE {repository.STALE_DAYS} END" in sql
+    for source in repository.WEB_SOURCES:
+        assert f"'{source}'" in sql
+    assert "t.source_id" in sql            # resolved per row, needs the t alias
+    assert sql in repository._ACTIVE_FRESHNESS_SQL
+    assert sql in repository._IS_EXPIRED_SQL
+
+
+def test_sync_expired_tenders_uses_the_same_per_source_cutoff(synced):
+    asyncio.run(repository.sync_expired_tenders())
+
+    stale_query = synced["queries"][1]
+    assert repository._STALE_CUTOFF_SQL in stale_query
+    assert "UPDATE tenders t" in stale_query   # the cutoff references t.source_id

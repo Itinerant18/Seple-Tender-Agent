@@ -25,6 +25,29 @@ logger = logging.getLogger(__name__)
 # exempted them from every expiry check (1,670 WebSearch rows, all stale).
 STALE_DAYS = 30
 
+# Web discovery gets a shorter grace. A portal row with no deadline is at
+# least a real notice whose date the parser missed; an undated web-search row
+# is usually an index page, an EOI, or a social post — 105 of them sat on the
+# board at once, every one from WebSearch, none biddable — and a week is long
+# enough for the duplicate-path backfill to find a date if one exists.
+WEB_STALE_DAYS = 7
+WEB_SOURCES = ("WebSearch", "WebDiscovery")
+
+# The staleness cutoff for a row: NOW() minus that row's source-specific
+# grace. Resolved per row through a scalar subquery so every query that
+# embeds it — the board, the detail view, the auto-close, the digest — agrees
+# without each having to join sources. Requires the tenders table to be
+# aliased ``t``.
+_STALE_CUTOFF_SQL = (
+    "NOW() - make_interval(days => COALESCE("
+    "(SELECT CASE WHEN src.name IN ({web_sources}) THEN {web_days} ELSE {days} END "
+    "FROM sources src WHERE src.id = t.source_id), {days}))"
+).format(
+    web_sources=", ".join(f"'{s}'" for s in WEB_SOURCES),
+    web_days=WEB_STALE_DAYS,
+    days=STALE_DAYS,
+)
+
 # The dashboard's "closing soon" window. Mirrors AlertRulesEngine's
 # SHORT_DEADLINE_DAYS so the board's urgent view and the short-deadline
 # instant alert agree on what "close to closing" means; bump both together.
@@ -36,16 +59,16 @@ CLOSING_SOON_DAYS = 5
 # the board, in the default view or any toggle — and reused by
 # sync_expired_tenders() so the view and the auto-close can never disagree
 # about what "stale" means.
-_ACTIVE_FRESHNESS_SQL = """(
+_ACTIVE_FRESHNESS_SQL = f"""(
     (t.deadline IS NOT NULL AND t.deadline >= NOW())
     OR (t.deadline IS NULL
-        AND COALESCE(t.publication_date::timestamp, t.created_at) >= NOW() - INTERVAL '{stale_days} days')
-)""".format(stale_days=STALE_DAYS)
+        AND COALESCE(t.publication_date::timestamp, t.created_at) >= {_STALE_CUTOFF_SQL})
+)"""
 
 _IS_EXPIRED_SQL = f"""(
     (t.deadline IS NOT NULL AND t.deadline < NOW())
     OR (t.deadline IS NULL
-        AND COALESCE(t.publication_date::timestamp, t.created_at) < NOW() - INTERVAL '{STALE_DAYS} days')
+        AND COALESCE(t.publication_date::timestamp, t.created_at) < {_STALE_CUTOFF_SQL})
 )"""
 
 # The "closing soon" toggle: live tenders inside the closing window. The
@@ -383,10 +406,10 @@ async def sync_expired_tenders() -> dict:
         ))
         stale = _rows_affected(await conn.execute(
             f"""
-            UPDATE tenders SET status = 'closed', updated_at = NOW()
-            WHERE status = 'new' AND deadline IS NULL
-              AND COALESCE(publication_date::timestamp, created_at)
-                    < NOW() - INTERVAL '{STALE_DAYS} days'
+            UPDATE tenders t SET status = 'closed', updated_at = NOW()
+            WHERE t.status = 'new' AND t.deadline IS NULL
+              AND COALESCE(t.publication_date::timestamp, t.created_at)
+                    < {_STALE_CUTOFF_SQL}
             """
         ))
     counts = {

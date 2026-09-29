@@ -147,3 +147,22 @@ def test_stale_window_mirrors_the_repository_constant():
     from database.repository import STALE_DAYS
 
     assert AlertRulesEngine.STALE_DAYS == STALE_DAYS
+    from database.repository import WEB_SOURCES, WEB_STALE_DAYS
+
+    assert AlertRulesEngine.WEB_STALE_DAYS == WEB_STALE_DAYS
+    assert tuple(AlertRulesEngine.WEB_SOURCES) == tuple(WEB_SOURCES)
+
+
+def test_undated_web_search_row_goes_stale_on_the_shorter_grace():
+    # Same age, two sources: a portal row is still inside the 30-day grace, a
+    # web-search row is past its 7-day one. The board's SQL makes the same
+    # split (repository._STALE_CUTOFF_SQL); this is the alert-side mirror.
+    age = timedelta(days=AlertRulesEngine.WEB_STALE_DAYS + 1)
+    assert age < timedelta(days=AlertRulesEngine.STALE_DAYS)
+    portal = Tender(title="t", source_name="GeM", created_at=datetime.now() - age)
+    web = Tender(title="t", source_name="WebSearch", created_at=datetime.now() - age)
+    assert AlertRulesEngine.is_stale(portal) is False
+    assert AlertRulesEngine.is_stale(web) is True
+    # a dated web row is judged by its deadline like any other
+    web.deadline = datetime.now() + timedelta(days=3)
+    assert AlertRulesEngine.is_stale(web) is False

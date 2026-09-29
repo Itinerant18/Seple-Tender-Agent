@@ -132,6 +132,9 @@ class Tender(BaseModel):
     issuing_authority: Optional[str] = None
     location: Optional[str] = None
     source_id: Optional[UUID] = None
+    # Not a column — carried on the object so staleness can be judged per
+    # source (web discovery gets a shorter grace) without a lookup.
+    source_name: Optional[str] = None
     source_url: Optional[str] = None
     status: TenderStatus = TenderStatus.NEW
 

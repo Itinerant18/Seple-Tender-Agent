@@ -258,6 +258,7 @@ class ScannerOrchestrator:
             issuing_authority=raw.issuing_authority,
             location=raw.location,
             source_id=await repository.get_source_id(raw.source),
+            source_name=raw.source,
             source_url=raw.url,
             fit_classification=analysis.fit_classification,
             confidence=analysis.confidence,
