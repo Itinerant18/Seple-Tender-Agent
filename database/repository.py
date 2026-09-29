@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
@@ -423,6 +423,73 @@ async def set_tender_deadline(
         return updated
 
 
+async def set_tender_publication_date(
+    tender_id: UUID,
+    publication_date: date,
+    performed_by: str = "system",
+) -> bool:
+    """Backfill a publication date for an existing tender.
+
+    Mirror of set_tender_deadline for the staleness anchor: fills only when
+    the stored publication date is NULL, so a recovered date can move a
+    no-deadline row inside (or outside) the STALE_DAYS window without ever
+    rewriting a date the pipeline already recorded.
+    """
+    async with get_connection() as conn:
+        result = await conn.execute(
+            """
+            UPDATE tenders SET publication_date = $2, updated_at = NOW()
+            WHERE id = $1 AND publication_date IS NULL
+            """,
+            tender_id, publication_date,
+        )
+        updated = result.endswith(" 1")
+        if updated:
+            await _audit(conn, "backfill_publication_date", "tender", tender_id,
+                         {"publication_date": publication_date.isoformat()}, performed_by)
+        return updated
+
+
+async def find_undated_live_tenders() -> list[dict]:
+    """Undated 'new' rows whose latest analysis restated dates.
+
+    These are the rows the board shows on the staleness grace alone: no
+    deadline to expire them, and a fresh created_at keeping them inside
+    STALE_DAYS. The classifier schema already asks the model to restate the
+    submission deadline and publication date it sees — for rows classified
+    before that restatement was wired into ingest, the evidence sits in
+    tender_analysis.raw_analysis waiting to be applied. Only rows with at
+    least one stated value are returned; the caller parses them through the
+    normal guards and hands the result to set_tender_deadline /
+    set_tender_publication_date (both NULL-guarded) + sync_expired_tenders.
+    """
+    async with get_connection() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT t.id, t.title, s.name AS source_name,
+                   latest.raw_analysis->>'submission_deadline' AS stated_deadline,
+                   latest.raw_analysis->>'publication_date' AS stated_publication_date
+            FROM tenders t
+            LEFT JOIN sources s ON t.source_id = s.id
+            LEFT JOIN LATERAL (
+                SELECT raw_analysis
+                FROM tender_analysis
+                WHERE tender_id = t.id
+                ORDER BY analyzed_at DESC
+                LIMIT 1
+            ) latest ON TRUE
+            WHERE t.status = 'new'
+              AND t.deadline IS NULL
+              AND (
+                latest.raw_analysis->>'submission_deadline' IS NOT NULL
+                OR latest.raw_analysis->>'publication_date' IS NOT NULL
+              )
+            ORDER BY t.created_at ASC
+            """,
+        )
+        return [dict(r) for r in rows]
+
+
 async def record_feedback(
     tender_id: UUID,
     feedback: UserFeedback,
@@ -705,7 +772,15 @@ async def queue_digest_tender(tender_id: UUID) -> Optional[UUID]:
 
 
 async def list_pending_digest_tenders() -> list[dict]:
-    """Return queued digest notifications joined to their tender payloads."""
+    """Return queued digest notifications joined to their tender payloads.
+
+    A tender queued while live can die before send day — the deadline passes,
+    the row goes stale, or a human triages it away. Such notifications are
+    expired here (with a reason) instead of going out: the digest must never
+    present a closed or expired tender as an opportunity. The live filter is
+    the board's own freshness predicate plus the terminal-status filter, so
+    the digest and the board can never disagree about what is sendable.
+    """
     async with get_connection() as conn:
         await conn.execute(
             """
@@ -720,14 +795,31 @@ async def list_pending_digest_tenders() -> list[dict]:
             """,
             NotificationType.DAILY_DIGEST.value,
         )
+        await conn.execute(
+            f"""
+            UPDATE notifications n
+            SET status = 'expired',
+                error_message = 'Tender is closed, stale, or no longer triageable'
+            FROM tenders t
+            WHERE t.id = n.tender_id
+              AND n.notification_type = $1
+              AND n.status = 'pending'
+              AND (
+                t.status IN ('closed', 'lost', 'ignored', 'disqualified')
+                OR NOT ({_ACTIVE_FRESHNESS_SQL})
+              )
+            """,
+            NotificationType.DAILY_DIGEST.value,
+        )
         rows = await conn.fetch(
-            """
+            f"""
             SELECT n.id AS digest_notification_id, t.*
             FROM notifications n
             JOIN tenders t ON t.id = n.tender_id
             WHERE n.notification_type = $1
               AND n.status = 'pending'
-              AND (t.deadline IS NULL OR t.deadline >= NOW())
+              AND {_ACTIVE_FRESHNESS_SQL}
+              AND t.status NOT IN ('closed', 'lost', 'ignored', 'disqualified')
             ORDER BY n.created_at ASC, n.id ASC
             """,
             NotificationType.DAILY_DIGEST.value,

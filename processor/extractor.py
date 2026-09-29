@@ -33,9 +33,15 @@ class FieldExtractor:
     #
     # Date forms covered by the capture group:
     #   15-03-2024 / 15/03/2024 / 15 Mar 2024 / 15-Aug-2026  (day-first)
+    #   March 15, 2024 / March 15 2024 / Mar 15, 2024 2:00 PM  (month-first,
+    #   as tender PDFs phrase "last date for submission was March 15, 2024")
     #   15.03.2024 / 15.03.26                                (Indian dot form)
     #   15th March 2024 / 1st April 2026                     (ordinals)
     #   2026-09-15 / 2026-09-15T14:30                        (ISO)
+    # The month-first form needs the day component: "March 2024" alone (a
+    # calendar reference, not a deadline) must not match, the same way the dot
+    # form refuses "06.2023". The 3-letter minimum on the month keeps "at 2:00"
+    # from reading as a month.
     # The middle component of the slash/dot forms is a month: digits or a name,
     # never a 4-digit year. Allowing [A-Za-z0-9]{2,9} there let "...06-2023 11..."
     # on a stripped page parse as a date, and a wrong deadline is worse than none
@@ -66,6 +72,8 @@ class FieldExtractor:
         r'(?:[\s,]+\d{1,2}:\d{2}(?:\s*[APap]\.?[Mm]\.?)?)?'
         r'|\d{1,2}\.\d{1,2}\.\d{2,4}'
         r'|\d{1,2}(?:st|nd|rd|th)\s+[A-Za-z]{3,9}\s*,?\s*\d{4}'
+        r'(?:[\s,]+\d{1,2}:\d{2}(?:\s*[APap]\.?[Mm]\.?)?)?'
+        r'|[A-Za-z]{3,9}\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}'
         r'(?:[\s,]+\d{1,2}:\d{2}(?:\s*[APap]\.?[Mm]\.?)?)?'
         r'|\d{4}-\d{2}-\d{2}(?:[T\s]\d{2}:\d{2})?)'
     )

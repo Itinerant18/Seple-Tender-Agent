@@ -225,6 +225,36 @@ def test_ordinal_dates_are_extracted_and_parsed():
     assert (parsed.year, parsed.month, parsed.day) == (2024, 3, 15)
 
 
+def test_month_first_dates_are_extracted_and_parsed():
+    # The Bolangir cash-van notice phrases its cutoff as "last date for
+    # submission was March 15, 2024, at 2:00 PM" — the pattern only knew
+    # day-first forms, so the row kept a NULL deadline and the staleness
+    # grace presented it as live for 30 days.
+    assert _deadline("Last Date of Submission : March 15, 2024") == "March 15, 2024"
+    assert _deadline(
+        "last date for submission was March 15, 2024, at 2:00 PM"
+    ) == "March 15, 2024"
+    assert _deadline("Last date of submission: Mar 15, 2024 2:00 PM") == "Mar 15, 2024 2:00 PM"
+    parsed = _FE.parse_datetime(_deadline("Due Date: March 15, 2024"))
+    assert (parsed.year, parsed.month, parsed.day) == (2024, 3, 15)
+    parsed = _FE.parse_datetime(_deadline("Due Date: March 15, 2024 2:00 PM"))
+    assert (parsed.year, parsed.month, parsed.day, parsed.hour) == (2024, 3, 15, 14)
+
+
+def test_month_first_form_still_guards_month_year_references():
+    # "March 2024" alone is a calendar reference, not a deadline — without a
+    # day component it must not match, the same rule the dot form enforces
+    # against "06.2023".
+    assert _deadline("September 2026 tender calendar published") is None
+    assert _deadline("Submission Deadline: September 2026") is None
+
+
+def test_month_first_form_does_not_shadow_a_day_first_date_on_the_line():
+    # The non-greedy bridge walks past an undated "Due Date March 2024" and
+    # still captures the real day-first date later on the same line.
+    assert _deadline("Due Date March 2024 work completed 15-03-2024") == "15-03-2024"
+
+
 def test_prose_deadline_phrases_capture_the_whole_date():
     # Greedy bridge backtracking once captured "5-03-2024" here — right shape,
     # wrong day. The full date must survive.

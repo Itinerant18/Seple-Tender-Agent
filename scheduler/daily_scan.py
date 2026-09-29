@@ -203,6 +203,40 @@ class ScannerOrchestrator:
         # Classify via LLM (falls back to regex if no provider/credit).
         analysis = await self.classifier.classify(raw, document_text=doc_text)
 
+        # LLM-stated date recovery. The classifier schema
+        # (skills/tender-intelligence/SKILL.md) asks the model to restate the
+        # submission deadline and publication date it sees, but the response
+        # parser used to throw those two fields away — a row the portal field
+        # and the regex both missed kept a NULL deadline, and the 30-day
+        # staleness grace then presented an ancient notice as live (the
+        # Bolangir cash-van tender, closed March 2024, surfaced Sept 2026).
+        # Only an otherwise-undated field is touched, and the stated text goes
+        # through the same parse guards — "Not stated" or a hallucinated
+        # dateless string parses to None and changes nothing. The existing
+        # is_stale check below still decides whether the row is closed; the
+        # model supplies a date, never a verdict.
+        stated = analysis.raw_analysis or {}
+        if deadline is None:
+            recovered = FieldExtractor.parse_datetime(
+                str(stated.get("submission_deadline") or "")
+            )
+            if recovered is not None:
+                deadline = recovered
+                logger.info(
+                    "Recovered deadline %s for %s from the LLM restatement %r",
+                    recovered, raw.title, stated.get("submission_deadline"),
+                )
+        if publication_date is None:
+            stated_pub = FieldExtractor.parse_date(
+                str(stated.get("publication_date") or "")
+            )
+            if stated_pub is not None:
+                publication_date = stated_pub
+                logger.info(
+                    "Recovered publication date %s for %s from the LLM restatement %r",
+                    stated_pub, raw.title, stated.get("publication_date"),
+                )
+
         if analysis.eligibility_assessment:
             analysis.eligibility_assessment = EligibilityChecker.evaluate(analysis.eligibility_assessment)
 

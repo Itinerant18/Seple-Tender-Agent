@@ -131,9 +131,30 @@ async def get_dashboard_stats():
 @app.post("/api/scan/trigger")
 async def trigger_scan(background_tasks: BackgroundTasks):
     """Manually trigger the daily scan pipeline in the background."""
-    orchestrator = ScannerOrchestrator()
-    background_tasks.add_task(orchestrator.run_daily_scan)
+    background_tasks.add_task(_scan_with_expiry_sync)
     return {"status": "accepted", "message": "Scan triggered in background"}
+
+
+async def _scan_with_expiry_sync() -> None:
+    """Manual scan with the scheduled cycle's expiry hygiene.
+
+    The scheduled run_cycle syncs expired/stale tenders before AND after the
+    scan; a bare run_daily_scan does neither, so deployments driven by this
+    endpoint let 'new' rows with past deadlines pile up unclosed between API
+    restarts. Same order as run_cycle: clean state in, backfilled deadlines
+    closed before the task returns.
+    """
+    try:
+        await repository.sync_expired_tenders()
+    except Exception:
+        logger.exception("Expired-tender sync failed before manual scan; continuing")
+    try:
+        await ScannerOrchestrator().run_daily_scan()
+    finally:
+        try:
+            await repository.sync_expired_tenders()
+        except Exception:
+            logger.exception("Expired-tender sync failed after manual scan; continuing")
 
 @app.get("/api/tenders/export")
 async def export_tenders():
