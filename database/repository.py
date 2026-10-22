@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -32,6 +32,11 @@ STALE_DAYS = 30
 # enough for the duplicate-path backfill to find a date if one exists.
 WEB_STALE_DAYS = 7
 WEB_SOURCES = ("WebSearch", "WebDiscovery")
+
+# A scrape run stuck in 'running' longer than this is treated as failed
+# (process killed, container restart). A full scan cycle is ~45 min; 2 h is a
+# safe margin so a slow-but-alive run is never reaped.
+RUN_STUCK_AFTER = timedelta(hours=2)
 
 # The staleness cutoff for a row: NOW() minus that row's source-specific
 # grace. Resolved per row through a scalar subquery so every query that
@@ -894,18 +899,58 @@ async def get_stats() -> dict:
               AND milestone_date <= NOW() + INTERVAL '7 days'
             """
         )
-        # Latest run per source. Without this a scraper that failed (expired
-        # quota, changed login markup) is indistinguishable in the UI from a
-        # source that simply had no matching tenders.
-        # Active sources only, so a retired one (CPPP) drops out of the strip
-        # immediately rather than showing its last result forever.
+        # Latest run per source with board-truth counts.
+        # A running row (in flight) must not read as "0 found" — it becomes
+        # in_progress. A stuck running row (>RUN_STUCK_AFTER) is reported as
+        # failed. Board counts use the same freshness filter as the list so the
+        # badge matches what the user actually sees.
         source_runs = await conn.fetch(
-            """
-            SELECT DISTINCT ON (r.source_name)
-                   r.source_name, r.status, r.tenders_found, r.error_message, r.completed_at
-            FROM scrape_runs r
-            JOIN sources s ON s.name = r.source_name AND s.is_active
-            ORDER BY r.source_name, r.started_at DESC
+            f"""
+            WITH attempt AS (
+                SELECT DISTINCT ON (r.source_name)
+                       r.source_name, r.status, r.tenders_found, r.error_message,
+                       r.started_at, r.completed_at
+                FROM scrape_runs r
+                ORDER BY r.source_name, r.started_at DESC
+            ),
+            last_done AS (
+                SELECT DISTINCT ON (r.source_name)
+                       r.source_name, r.status, r.tenders_found, r.error_message, r.completed_at
+                FROM scrape_runs r
+                WHERE r.completed_at IS NOT NULL
+                ORDER BY r.source_name, r.completed_at DESC
+            ),
+            last_ok AS (
+                SELECT source_name, max(completed_at) AS last_success_at
+                FROM scrape_runs
+                WHERE status = 'completed'
+                GROUP BY source_name
+            ),
+            board AS (
+                SELECT s.name AS source,
+                       count(*) FILTER (WHERE {_ACTIVE_FRESHNESS_SQL}
+                           AND t.status NOT IN ('closed', 'lost', 'ignored', 'disqualified')) AS board_live,
+                       count(*) AS board_total,
+                       max(t.created_at) AS board_newest
+                FROM tenders t JOIN sources s ON s.id = t.source_id
+                GROUP BY s.name
+            )
+            SELECT s.name AS source,
+                   a.status AS attempt_status,
+                   a.started_at AS attempt_started_at,
+                   d.status AS last_status,
+                   d.tenders_found, d.error_message, d.completed_at,
+                   o.last_success_at,
+                   COALESCE(b.board_live, 0) AS board_live,
+                   COALESCE(b.board_total, 0) AS board_total,
+                   b.board_newest
+            FROM sources s
+            LEFT JOIN attempt a ON a.source_name = s.name
+            LEFT JOIN last_done d ON d.source_name = s.name
+            LEFT JOIN last_ok  o ON o.source_name = s.name
+            LEFT JOIN board   b ON b.source = s.name
+            WHERE s.is_active
+            ORDER BY s.name
             """
         )
 
@@ -922,11 +967,19 @@ async def get_stats() -> dict:
             "upcoming_milestones_7d": upcoming or 0,
             "source_status": [
                 {
-                    "source": r["source_name"],
-                    "status": r["status"],
+                    "source": r["source"],
+                    "status": r["last_status"] if r["last_status"] else r["attempt_status"],
+                    "in_progress": r["attempt_status"] == "running"
+                                   and r["attempt_started_at"] is not None
+                                   and r["attempt_started_at"] > datetime.now(timezone.utc) - RUN_STUCK_AFTER,
+                    "attempt_started_at": r["attempt_started_at"].isoformat() if r["attempt_started_at"] else None,
                     "tenders_found": r["tenders_found"] or 0,
                     "error": r["error_message"],
                     "completed_at": r["completed_at"].isoformat() if r["completed_at"] else None,
+                    "last_success_at": r["last_success_at"].isoformat() if r["last_success_at"] else None,
+                    "board_live": r["board_live"],
+                    "board_total": r["board_total"],
+                    "board_newest": r["board_newest"].isoformat() if r["board_newest"] else None,
                 }
                 for r in source_runs
             ],

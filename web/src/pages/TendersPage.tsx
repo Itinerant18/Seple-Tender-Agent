@@ -38,9 +38,15 @@ type Tender = {
 type SourceStatus = {
   source: string;
   status: string;
+  in_progress: boolean;
+  attempt_started_at: string | null;
   tenders_found: number;
   error: string | null;
   completed_at: string | null;
+  last_success_at: string | null;
+  board_live: number;
+  board_total: number;
+  board_newest: string | null;
 };
 
 type Stats = {
@@ -109,6 +115,58 @@ function fmtDate(iso: string | null): string {
     month: "short",
     year: "numeric",
   });
+}
+
+function buildSourceBadge(s: {
+  source: string;
+  status: string;
+  in_progress: boolean;
+  attempt_started_at: string | null;
+  tenders_found: number;
+  error: string | null;
+  completed_at: string | null;
+  last_success_at: string | null;
+  board_live: number;
+  board_total: number;
+}): { tone: "default" | "destructive" | "outline" | "secondary" | "success" | "warning"; label: string; title: string } {
+  const isScanning = s.in_progress;
+  const isFailed = s.status === "failed";
+  const isStale = s.last_success_at
+    ? new Date(s.last_success_at).getTime() < Date.now() - 48 * 60 * 60 * 1000
+    : false;
+  const liveCount = s.board_live ?? 0;
+
+  let tone: "default" | "destructive" | "outline" | "secondary" | "success" | "warning";
+  let label: string;
+  let title: string;
+
+  if (isScanning) {
+    tone = "secondary";
+    label = `${s.source}: ${liveCount} live (scanning)`;
+    title = `Scan started ${fmtDate(s.attempt_started_at || s.completed_at)} — results land when it finishes. ${liveCount} rows already on the board.`;
+  } else if (isFailed) {
+    tone = "destructive";
+    label = `${s.source}: ${liveCount} live (failed)`;
+    title = `Last attempt ${fmtDate(s.completed_at)} failed: ${s.error || "unknown"}. ` +
+      `Last success ${s.last_success_at ? fmtDate(s.last_success_at) : "never"}. ` +
+      `${liveCount} rows still live on the board from the last good scan.`;
+  } else if (isStale) {
+    tone = "warning";
+    const daysAgo = Math.floor((Date.now() - new Date(s.last_success_at!).getTime()) / (24 * 60 * 60 * 1000));
+    label = `${s.source}: ${liveCount} live · stale ${daysAgo}d`;
+    title = `Last success ${fmtDate(s.last_success_at)} (${daysAgo} days ago). ` +
+      `${liveCount} live on the board.`;
+  } else if (liveCount === 0) {
+    tone = "outline";
+    label = `${s.source}: 0 live`;
+    title = `Last attempt ${fmtDate(s.completed_at)} found no live matches.`;
+  } else {
+    tone = "success";
+    label = `${s.source}: ${liveCount} live`;
+    title = `Last attempt ${fmtDate(s.completed_at)}: ${liveCount} live on the board.`;
+  }
+
+  return { tone, label, title };
 }
 
 function isClosedOrExpired(t: Tender): boolean {
@@ -236,20 +294,23 @@ export default function TendersPage() {
         </div>
       )}
 
-      {/* per-source scan outcome — a failed scraper must not read as "no tenders" */}
+{/* per-source scan outcome — a failed scraper must not read as "no tenders" */}
       {stats?.source_status?.length ? (
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-text-tertiary">Last scan:</span>
-          {stats.source_status.map((s) => (
-            <Badge
-              key={s.source}
-              tone={s.status === "failed" ? "destructive" : s.tenders_found ? "success" : "outline"}
-              className="font-sans tracking-wide"
-              title={s.error || (s.completed_at ? `Completed ${fmtDate(s.completed_at)}` : "")}
-            >
-              {s.source}: {s.status === "failed" ? "failed" : `${s.tenders_found}`}
-            </Badge>
-          ))}
+          {stats.source_status.map((s) => {
+            const { tone, label, title } = buildSourceBadge(s);
+            return (
+              <Badge
+                key={s.source}
+                tone={tone}
+                className="font-sans tracking-wide"
+                title={title}
+              >
+                {label}
+              </Badge>
+            );
+          })}
         </div>
       ) : null}
 

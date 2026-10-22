@@ -30,7 +30,10 @@ logger = logging.getLogger(__name__)
 
 # Login actions get a login-scoped timeout instead of the page default (30s):
 # the SPA hydrates late and a re-render around the click must not fail the run.
-_LOGIN_ACTION_TIMEOUT = 90_000  # ms
+_LOGIN_ACTION_TIMEOUT = 180_000  # ms
+
+# Page load timeout — container egress can be slow, Cloudflare challenges add delay
+_PAGE_LOAD_TIMEOUT = 300_000  # ms
 
 # full payload the API expects — missing keys cause a 400
 _SEARCH_JS = """async (arg) => {
@@ -170,34 +173,38 @@ class Tender247Connector(BaseConnector):
 
             # 1. Try persisted session
             if self.session_file.exists():
-                await self.page.goto(f"{self.base_url}/auth/tender", wait_until="domcontentloaded")
+                await self.page.goto(f"{self.base_url}/auth/tender", wait_until="domcontentloaded", timeout=_PAGE_LOAD_TIMEOUT)
                 await asyncio.sleep(6)  # SPA hydration
                 if "/auth/" in self.page.url:
-                    self.is_logged_in = True
-                    logger.info("Tender247 session restored from storage_state")
-                    return True
-                logger.info("Persisted Tender247 session expired — clearing stale browser state and logging in fresh")
-                # The stale token is still in localStorage/cookies at this point.
-                # A hydrated SPA holding an expired JWT can toast/re-render and
-                # swallow the login click (21-09-2026 outage), so wipe it before
-                # the fresh-login attempt.
-                await self._clear_browser_state()
+                    # Verify the restored session has the feed query id.
+                    # The persisted state is saved right after login redirect,
+                    # before the SPA writes user_query_id. If it's missing, the
+                    # restored session is unusable and we must do a fresh login.
+                    qid = await self.page.evaluate("() => localStorage.getItem('user_query_id')")
+                    if qid and str(qid) not in ("0", "null", ""):
+                        self.is_logged_in = True
+                        logger.info("Tender247 session restored from storage_state")
+                        return True
+                    logger.info("Restored Tender247 session missing user_query_id — clearing and doing fresh login")
+                    await self._clear_browser_state()
 
-            # 2. Fresh login via homepage modal
-            await self.page.goto(self.base_url, wait_until="domcontentloaded")
-            # Wait on the elements, not the clock. Fixed sleeps of 6s + 3s plus a
-            # 25s wait_for_url totalled 34s, and on 19-08-2026 the login needed
-            # more than that: the run was logged as "check credentials" while the
-            # credentials, the network and the markup were all fine.
-            #
-            # Header button is "Log in" (verified live 11-08-2026). The mobile
-            # menu holds a hidden "Sign Up / Log in" duplicate — matching that
-            # one waits forever for visibility, so keep this match exact.
+            # 2. Fresh login via homepage modal — retry page load up to 2 times
+            load_error: Exception | None = None
+            for load_attempt in (1, 2):
+                try:
+                    await self.page.goto(self.base_url, wait_until="domcontentloaded", timeout=_PAGE_LOAD_TIMEOUT)
+                    load_error = None
+                    break
+                except Exception as e:
+                    load_error = e
+                    logger.warning("Tender247 homepage load attempt %d failed: %s", load_attempt, e)
+                    await asyncio.sleep(5)
+            if load_error is not None:
+                self.login_failure = f"homepage load failed after retry: {type(load_error).__name__}: {load_error}"
+                logger.error("Tender247 login failed: %s", self.login_failure)
+                return False
+
             login_button = self.page.get_by_role("button", name="Log in", exact=True).first
-            # Try the click twice: a SPA re-render between wait_for and click
-            # (expired-session toast, hydrating header) must not fail the whole
-            # source for the day. Retrying forces a fresh hit-target re-check,
-            # so a torn-down first attempt still lands on the second.
             click_error: Exception | None = None
             for attempt in (1, 2):
                 try:
@@ -227,18 +234,15 @@ class Tender247Connector(BaseConnector):
                 redirected = False
 
             if "/auth/" in self.page.url:
+                # Wait for the SPA to materialize user_query_id before persisting.
+                # This ensures the saved session is actually usable next time.
+                await self._wait_for_feed_ready()
                 self.is_logged_in = True
                 self.session_file.parent.mkdir(parents=True, exist_ok=True)
                 await self.context.storage_state(path=str(self.session_file))
                 logger.info("Successfully logged into Tender247 (session persisted)")
                 return True
 
-            # Report what happened, not a guess. This used to read "Check
-            # credentials.", which is what a redirect that merely ran slow looks
-            # like — and it cost a day chasing rotated passwords and an IP
-            # whitelist while the credentials were correct all along (19-08-2026).
-            # A rejected login leaves us on the homepage with an error in the
-            # modal; a slow one just never redirects in time.
             if not redirected:
                 self.login_failure = "no redirect to /auth within 90s after SUBMIT"
             else:
