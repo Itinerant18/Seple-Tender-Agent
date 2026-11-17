@@ -17,6 +17,7 @@ Flow:
 import os
 import logging
 import asyncio
+import json
 from pathlib import Path
 from typing import List, Optional
 from urllib.parse import unquote, urlsplit, urlunsplit
@@ -36,6 +37,7 @@ _LOGIN_ACTION_TIMEOUT = 180_000  # ms
 _PAGE_LOAD_TIMEOUT = 300_000  # ms
 
 # full payload the API expects — missing keys cause a 400
+# Kept as source text so the model-tool schema can validate at import time.
 _SEARCH_JS = """async (arg) => {
     const ud = JSON.parse(localStorage.getItem('userData') || '{}');
     const qid = Number(localStorage.getItem('user_query_id')) || 0;
@@ -55,8 +57,11 @@ _SEARCH_JS = """async (arg) => {
         method:'POST',
         headers:{'Content-Type':'application/json','Authorization':'Bearer '+ud.token},
         body: JSON.stringify(payload)});
+    if (r.status !== 200) {
+      return {status: r.status, success: false, total: 0, data: [], error: 'HTTP ' + r.status};
+    }
     const d = await r.json();
-    return {status:r.status, success:d.Success, total:d.TotalRecord, data:d.Data || []};
+    return {status: r.status, success: d.Success || false, total: d.TotalRecord || 0, data: d.Data || []};
 }"""
 
 
@@ -204,24 +209,33 @@ class Tender247Connector(BaseConnector):
                 logger.error("Tender247 login failed: %s", self.login_failure)
                 return False
 
-            login_button = self.page.get_by_role("button", name="Log in", exact=True).first
-            click_error: Exception | None = None
+            # 3. Click "Log in" / "Sign in" button — retry twice to survive SPA re-render
+            login_clicked = False
             for attempt in (1, 2):
                 try:
+                    # Try both "Log in" and "Sign in" text patterns
+                    login_button = self.page.get_by_role("button", name="Log in", exact=True).first
                     await login_button.wait_for(state="visible", timeout=_LOGIN_ACTION_TIMEOUT)
                     await login_button.click(timeout=_LOGIN_ACTION_TIMEOUT)
-                    click_error = None
+                    login_clicked = True
                     break
                 except Exception as e:
-                    click_error = e
                     logger.warning("Tender247 login click attempt %d failed: %s", attempt, e)
-            if click_error is not None:
-                self.login_failure = (
-                    f"login button click failed after retry: "
-                    f"{type(click_error).__name__}: {click_error}"
-                )
+                    # Try "Sign in" as fallback if "Log in" not found
+                    try:
+                        signin_button = self.page.get_by_role("button", name="Sign in", exact=True).first
+                        await signin_button.wait_for(state="visible", timeout=_LOGIN_ACTION_TIMEOUT)
+                        await signin_button.click(timeout=_LOGIN_ACTION_TIMEOUT)
+                        login_clicked = True
+                        break
+                    except Exception:
+                        continue
+            if not login_clicked:
+                self.login_failure = "login button click failed after retries"
                 logger.error("Tender247 login failed: %s", self.login_failure)
                 return False
+
+            # 4. Fill email and password, submit
             email_box = self.page.locator("input[name='emailId']")
             await email_box.wait_for(state="visible", timeout=_LOGIN_ACTION_TIMEOUT)
             await email_box.fill(self.email)
@@ -311,15 +325,23 @@ class Tender247Connector(BaseConnector):
 
         tenders: List[RawTender] = []
         seen = set()
+        errors: List[str] = []
         for keyword in [""] + list(keywords or []):
             try:
                 res = await self.page.evaluate(
                     _SEARCH_JS, {"searchText": keyword, "perPage": 100}
                 )
-                if res["status"] != 200 or not res["success"]:
-                    logger.error(f"Tender247 API error for '{keyword}': HTTP {res['status']}")
+                if res.get("status") != 200:
+                    err = f"Tender247 API error for '{keyword}': HTTP {res.get('status', 'unknown')}"
+                    errors.append(err)
+                    logger.error(err)
                     continue
-                for it in res["data"]:
+                if not res.get("success"):
+                    err = f"Tender247 API returned unsuccessful for '{keyword}'"
+                    errors.append(err)
+                    logger.error(err)
+                    continue
+                for it in res.get("data", []):
                     tid = str(it.get("tender_id"))
                     if tid in seen:
                         continue
@@ -344,7 +366,11 @@ class Tender247Connector(BaseConnector):
                     ))
                 await asyncio.sleep(1)  # gentle pacing between API calls
             except Exception as e:
-                logger.error(f"Tender247 search '{keyword}' failed: {e}")
+                err = f"Tender247 search '{keyword}' failed: {e}"
+                errors.append(err)
+                logger.error(err)
+        if errors:
+            logger.info("Tender247 scan completed with %d errors: %s", len(errors), "; ".join(errors[:3]))
         logger.info(f"Scraped {len(tenders)} unique tenders from Tender247")
         return tenders
 

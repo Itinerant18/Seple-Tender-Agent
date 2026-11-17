@@ -5,6 +5,7 @@ Implements PRD §8.1
 """
 import os
 import logging
+import asyncio
 from typing import List, Dict
 import smtplib
 from email.message import EmailMessage
@@ -14,6 +15,7 @@ from database.models import Tender, FitLabel
 
 logger = logging.getLogger(__name__)
 
+
 class EmailDigestSender:
     
     def __init__(self):
@@ -22,8 +24,15 @@ class EmailDigestSender:
         self.smtp_user = os.getenv("SMTP_USER")
         self.smtp_pass = os.getenv("SMTP_PASS")
         self.sender_email = os.getenv("SENDER_EMAIL", self.smtp_user)
-        self.recipient_emails = os.getenv("RECIPIENT_EMAILS", "").split(",")
+        self.recipient_emails = [e.strip() for e in os.getenv("RECIPIENT_EMAILS", "").split(",") if e.strip()]
         
+    def _smtp_connect(self):
+        """Create and return an SMTP server connection."""
+        server = smtplib.SMTP(self.smtp_server, self.smtp_port)
+        server.starttls()
+        server.login(self.smtp_user, self.smtp_pass)
+        return server
+    
     def generate_html(self, tenders: List[Tender]) -> str:
         """Generate the HTML body for the daily digest."""
         
@@ -96,7 +105,7 @@ class EmailDigestSender:
                 <a href="{tender.source_url or '#'}" class="btn" target="_blank">View Original Document</a>
             </div>
             """
-
+        
         if strong_fits:
             html += '<h2 class="section-title">✅ Strong Fits (Apply / Review)</h2>'
             for t in strong_fits:
@@ -119,7 +128,7 @@ class EmailDigestSender:
         </html>
         """
         return html
-
+    
     async def send_digest(self, tenders: List[Tender]) -> bool:
         """Send the daily digest via email."""
         if not tenders:
@@ -127,27 +136,34 @@ class EmailDigestSender:
             return True
             
         if not self.smtp_user or not self.smtp_pass or not self.recipient_emails:
-            logger.error("Email configuration missing. Cannot send digest.")
+            logger.error("Email configuration missing. Cannot send digest. "
+                        "Set SMTP_USER, SMTP_PASS, and RECIPIENT_EMAILS in environment.")
             return False
             
+        # Filter to only relevant tenders (strong + potential fit)
+        relevant = [t for t in tenders if t.fit_classification in (FitLabel.STRONG_FIT, FitLabel.POTENTIAL_FIT)]
+        
+        if not relevant:
+            logger.info("No relevant (strong/potential fit) tenders to send in digest.")
+            return True
+        
         try:
-            html_content = self.generate_html(tenders)
+            html_content = self.generate_html(relevant)
             
             msg = EmailMessage()
             msg['Subject'] = f"SEPLE Tender Digest - {datetime.now().strftime('%d %b %Y')}"
             msg['From'] = self.sender_email
-            msg['To'] = ", ".join([e for e in self.recipient_emails if e])
+            msg['To'] = ", ".join(self.recipient_emails)
             
             msg.set_content("Please view this email in an HTML-compatible client.")
             msg.add_alternative(html_content, subtype='html')
             
             # Using synchronous smtplib inside async function (acceptable for background task)
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.smtp_user, self.smtp_pass)
-                server.send_message(msg)
-                
-            logger.info("Successfully sent daily email digest.")
+            server = self._smtp_connect()
+            server.send_message(msg)
+            server.quit()
+            
+            logger.info("Successfully sent daily email digest to %d recipients.", len(self.recipient_emails))
             return True
             
         except Exception as e:
