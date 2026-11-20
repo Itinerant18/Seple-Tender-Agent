@@ -137,7 +137,8 @@ class EmailDigestSender:
             
         if not self.smtp_user or not self.smtp_pass or not self.recipient_emails:
             logger.error("Email configuration missing. Cannot send digest. "
-                        "Set SMTP_USER, SMTP_PASS, and RECIPIENT_EMAILS in environment.")
+                        "Set SMTP_USER, SMTP_PASS, and RECIPIENT_EMAILS in environment. "
+                        "Pending email notifications will retry on the next scan cycle.")
             return False
             
         # Filter to only relevant tenders (strong + potential fit)

@@ -73,7 +73,16 @@ class ScannerOrchestrator:
             try:
                 found = await connector.scrape_tenders(self.keywords)
                 raw_tenders.extend(found)
-                await repository.complete_scrape_run(run_id, tenders_found=len(found))
+                if len(found) == 0:
+                    logger.info("%s scrape completed: successful but found 0 tenders", name)
+                    await repository.complete_scrape_run(
+                        run_id, tenders_found=0, status="success_no_results",
+                    )
+                else:
+                    logger.info("%s scrape completed: found %d tenders", name, len(found))
+                    await repository.complete_scrape_run(
+                        run_id, tenders_found=len(found), status="completed",
+                    )
             except Exception as e:
                 logger.error("%s scan failed: %s", name, e)
                 await repository.complete_scrape_run(run_id, error=str(e))

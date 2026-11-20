@@ -80,9 +80,21 @@ async def run_cycle(*, now: datetime | None = None) -> dict:
                 })
                 for row in queued_rows
             ]
-            if tenders and await orchestrator.email.send_digest(tenders):
-                await repository.mark_digest_notifications_sent(notification_ids)
-                digest_count = len(tenders)
+            if tenders:
+                send_success = await orchestrator.email.send_digest(tenders)
+                if send_success:
+                    await repository.mark_digest_notifications_sent(notification_ids)
+                    digest_count = len(tenders)
+                else:
+                    # Email config missing — don't mark notifications as sent;
+                    # they will retry on the next scan cycle.
+                    logger.warning(
+                        "Email digest not sent — SMTP config missing. "
+                        "%d pending notifications remain for next cycle.",
+                        len(tenders),
+                    )
+            else:
+                logger.info("No pending digest tenders for today's email.")
         except Exception:
             logger.exception("Digest send failed; queued tenders remain pending")
 

@@ -736,9 +736,25 @@ async def complete_scrape_run(
     tenders_updated: int = 0,
     duplicates_skipped: int = 0,
     error: Optional[str] = None,
+    status: Optional[str] = None,
 ):
-    """Record the completion of a scrape run."""
-    status = "failed" if error else "completed"
+    """Record the completion of a scrape run.
+
+    If ``status`` is provided it is used directly; otherwise it is derived
+    from ``error`` and ``tenders_found``:
+        - ``error`` is set  → ``"failed"``
+        - no ``error`` and ``tenders_found`` > 0  → ``"completed"``
+        - no ``error`` and ``tenders_found`` == 0  → ``"success_no_results"``
+    This lets the dashboard display distinct states such as
+    "0 live" (successful scan, no results) vs "failed" (scraper error).
+    """
+    if status is None:
+        if error:
+            status = "failed"
+        elif tenders_found == 0:
+            status = "success_no_results"
+        else:
+            status = "completed"
     async with get_connection() as conn:
         await conn.execute(
             """

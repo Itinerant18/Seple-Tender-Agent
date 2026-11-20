@@ -250,6 +250,19 @@ class GeMConnector:
 
             tenders = list(found.values())[:max_results]
             logger.info("GeM returned %d tenders", len(tenders))
+
+            # Log when scan completed with 0 results — distinguish from scraper crash.
+            # A silent [] from the Apify actor used to look the same, which cost
+            # days of misdiagnosis (issue: GeM 0 live with no error).
+            if not tenders:
+                logger.info(
+                    "GeM scrape completed: 0 tenders found across %d search terms "
+                    "and %d mirror pages. If this persists, the portal structure "
+                    "may have changed.",
+                    len(GEM_SEARCH_TERMS),
+                    40,
+                )
+
             return tenders
         except Exception as e:
             # Raise so the failure lands on the scrape run; a silent [] is what
@@ -266,7 +279,21 @@ class GeMConnector:
         await self.page.fill("#searchBid", term)
         await self.page.press("#searchBid", "Enter")
         await asyncio.sleep(6)  # results replace the list in place, URL is unchanged
-        return await self.page.eval_on_selector_all("div.card", _EXTRACT_JS)
+
+        # Structural validation: if no cards returned, check whether the
+        # portal's DOM layout has changed (common with government site updates).
+        cards = await self.page.eval_on_selector_all("div.card", _EXTRACT_JS)
+        if not cards:
+            try:
+                await self.page.wait_for_selector("#searchBid", state="attached", timeout=5_000)
+            except Exception:
+                logger.warning(
+                    "GeM search '%s': no cards found and search input #searchBid "
+                    "not present — portal structure may have changed since last "
+                    "verified run (11-08-2026)",
+                    term,
+                )
+        return cards
 
     async def close(self):
         if self.browser:
