@@ -25,6 +25,8 @@ services:
           property: connectionString
       - key: OPENAI_API_KEY
         sync: false
+      - key: SCAN_SOURCES
+        value: "TenderTiger,Tender247,GeM,WebSearch"
 
   - type: cron
     name: tender-scanner
@@ -77,6 +79,8 @@ services:
         sync: false
       - key: RECIPIENT_EMAILS
         sync: false
+      - key: SCAN_SOURCES
+        value: "TenderTiger,Tender247,GeM,WebSearch"
 
   - type: web
     name: hermes-agent

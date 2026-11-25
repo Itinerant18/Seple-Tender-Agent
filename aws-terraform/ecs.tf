@@ -99,7 +99,8 @@ resource "aws_ecs_task_definition" "api" {
       protocol      = "tcp"
     }]
     environment = [
-      { name = "DATABASE_URL", value = "postgresql://postgres:${urlencode(var.db_password)}@${aws_db_instance.main.endpoint}/tenders" }
+      { name = "DATABASE_URL", value = "postgresql://postgres:${urlencode(var.db_password)}@${aws_db_instance.main.endpoint}/tenders" },
+      { name = "SCAN_SOURCES", value = "TenderTiger,Tender247,GeM,WebSearch" }
     ]
     secrets = [
       { name = "OPENAI_API_KEY", valueFrom = "${aws_secretsmanager_secret.tender_secrets.arn}:OPENAI_API_KEY::" }

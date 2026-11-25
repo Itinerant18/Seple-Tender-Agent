@@ -31,6 +31,7 @@ resource "aws_ecs_task_definition" "scanner" {
     command = ["python", "-m", "scheduler.run_once"]
     environment = [
       { name = "DATABASE_URL", value = "postgresql://postgres:${var.db_password}@${aws_db_instance.main.endpoint}/tenders" },
+      { name = "SCAN_SOURCES", value = "TenderTiger,Tender247,GeM,WebSearch" },
       # SearXNG runs as a sidecar in this task — reachable over localhost.
       { name = "SEARXNG_URL", value = "http://localhost:8080" }
     ]

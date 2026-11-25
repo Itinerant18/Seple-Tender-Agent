@@ -21,6 +21,8 @@ from notifier.alert_rules import AlertRulesEngine
 
 logger = logging.getLogger(__name__)
 
+KNOWN_SOURCES = ("TenderTiger", "Tender247", "GeM", "WebSearch")
+
 class ScannerOrchestrator:
     
     def __init__(self):
@@ -38,6 +40,22 @@ class ScannerOrchestrator:
         # source is otherwise unaffordable.
         selected = os.getenv("SCAN_SOURCES", "").strip()
         self.sources = {s.strip().lower() for s in selected.split(",") if s.strip()}
+        if self.sources:
+            known = {name.lower() for name in KNOWN_SOURCES}
+            missing = [name for name in KNOWN_SOURCES if name.lower() not in self.sources]
+            unknown = sorted(self.sources - known)
+            if missing:
+                logger.warning(
+                    "SCAN_SOURCES=%r excludes %s; those sources will not be scanned",
+                    selected,
+                    ", ".join(missing),
+                )
+            if unknown:
+                logger.warning(
+                    "SCAN_SOURCES=%r contains unknown sources: %s",
+                    selected,
+                    ", ".join(unknown),
+                )
 
     def _enabled(self, source: str) -> bool:
         if not self.sources:
