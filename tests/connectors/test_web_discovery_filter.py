@@ -268,3 +268,25 @@ def test_single_notices_on_the_same_hosts_survive():
                  "GEM/2026/B/7914536")
     assert keeps("https://eprocure.gov.in/eprocure/app?notice=123",
                  "Supply and installation of fire hydrant system")
+
+
+def test_production_audit_nov2026_leak_shapes_are_dropped():
+    for url, title in (
+        ("https://www.oil-india.com/tender-list/64",
+         "Global Tenders - Tender List | Oil India Limited"),
+        ("https://bidplus.gem.gov.in/showbidDocument/10051734",
+         "/ Bid Document - GeM Portal"),
+        ("https://spmcil.com/upload/tender/BuyerAddedATC.pdf",
+         "Buyer Added Bid Specific Additional Terms and Conditions - Spmcil"),
+        ("https://dept.gov.in/files/award-security.pdf",
+         "Award of security tender and work effected from 01/06/2026 GEM"),
+        ("https://hurl.net.in/tenders",
+         "Tender Portal - HURL"),
+        ("https://jnport.gov.in/files/Contract_List_Vigilance_Format_August_2026_MS.xlsx",
+         "Contract List Vigilance Format August 2026_MS.xlsx - JNPA"),
+        ("https://www.nhpcindia.com/welcome/home",
+         "होम - एनएचपीसी लिमिटेड"),
+        ("https://aiimsnagpur.edu.in/current-tenders",
+         "Current Tenders - All India Institute of Medical Sciences, Nagpur"),
+    ):
+        assert not keeps(url, title), f"Expected drop for {url} / {title}"

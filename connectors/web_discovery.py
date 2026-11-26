@@ -45,19 +45,25 @@ _QUERY_TEMPLATES = [
 _LISTING_URL_MARKERS = (
     "/keyword/", "/global-keyword/", "quicksearch.aspx", "/indian-tender/",
     "tenderailist", "/bids/", "/product/", "request-for-proposal",
+    "/tender-list", "/tender-portal", "/current-tenders",
 )
+
+_NON_NOTICE_EXTENSIONS = (".xlsx", ".xls", ".csv")
 
 _LISTING_TITLE_RE = re.compile(
     r"^\s*\d+\s+.*\btenders?\b"          # "62 Cctv Amc Tenders In India 2026"
     r"|^\s*\d+\s*-\s+"                   # "68 - eProcurement System Government of India"
-    r"|^\s*(?:latest|live|all|top|open)\b.*\btenders?\b"
+    r"|^\s*(?:latest|live|all|top|open|current)\b.*\btenders?\b"
     r"|^\s*search\s+tenders?\b"
     r"|^\s*tenders?\s*[-–|/]"            # "Tenders - Invest India", "Tenders / Procurement"
     r"|^\s*tender\s+title\s*[-–|]"       # portal index pages titled by their column header
     r"|\btenders?\s+archived?\b|\barchived?\s+tenders?\b"
-    r"|\btender\s+alerts?\b"
+    r"|\btender\s+(?:alerts?|list|portal)\b"
     r"|\btenders?\s*(?:&|and)\s*(?:rfps?|eprocurement)\b"
-    r"|\btenders?\s+(?:from|in)\s+\w+\s*\d{0,4}\s*$",
+    r"|\btenders?\s+(?:from|in)\s+\w+\s*\d{0,4}\s*$"
+    r"|^\s*(?:home|होम)\s*[-–|]"
+    r"|^\s*(?:/\s*)?bid\s+document\s*-\s*gem\s+portal\b"
+    r"|^\s*buyer\s+added\s+bid\s+specific\b",
     re.I,
 )
 
@@ -67,8 +73,22 @@ _SOCIAL_HOSTS = (
     "linkedin.com", "youtube.com", "t.me",
 )
 
+# Dedicated portal hosts already covered by GeMConnector directly.
+_DEDICATED_PORTAL_HOSTS = (
+    "bidplus.gem.gov.in",
+    "fulfilment.gem.gov.in",
+)
+
 # Already decided — an awarded contract is not an opportunity.
 _CLOSED_MARKERS = ("awarded", "/contract/", "slafds", "/result", "cancelled")
+
+_CLOSED_TITLE_RE = re.compile(
+    r"^\s*award(?:ed)?\s+of\b"
+    r"|\bcontract\s+list\b"
+    r"|\bvigilance\s+format\b"
+    r"|\btender\s+(?:awarded|cancelled|result)\b",
+    re.I,
+)
 
 # NIC eProcurement ("nicgep") portals — mptenders.gov.in, and any other state
 # running the same Tapestry app (eprocure.<state>.gov.in shapes aside, the
@@ -166,13 +186,17 @@ def _is_tender_page(url: str, title: str) -> bool:
 
     if "tender" in host and not host.endswith((".gov.in", ".nic.in")):
         return False
-    if any(host == h or host.endswith("." + h) for h in _SOCIAL_HOSTS):
+    if any(host == h or host.endswith("." + h) for h in _SOCIAL_HOSTS + _DEDICATED_PORTAL_HOSTS):
         return False
     if _is_nicgep_portal(url, title):
+        return False
+    if (parts.path or "").lower().endswith(_NON_NOTICE_EXTENSIONS):
         return False
     if any(marker in blob for marker in _LISTING_URL_MARKERS):
         return False
     if any(marker in blob for marker in _CLOSED_MARKERS):
+        return False
+    if _CLOSED_TITLE_RE.search(title or ""):
         return False
     if _has_stale_year(parts.path or "", title or ""):
         return False

@@ -264,6 +264,18 @@ class ScannerOrchestrator:
                     stated_pub, raw.title, stated.get("publication_date"),
                 )
 
+        # If neither regex extraction on the fetched page nor the LLM reading
+        # the page could identify a submission deadline for a web search hit,
+        # reject it before persisting so index pages, homepages, and news items
+        # referencing a tender ID never sit on the active board undated.
+        if raw.source in ("WebDiscovery", "WebSearch") and deadline is None:
+            self._web_gate_drops += 1
+            logger.info(
+                "Dropping web result with no deadline after LLM recovery: %s",
+                raw.url,
+            )
+            return None
+
         if analysis.eligibility_assessment:
             analysis.eligibility_assessment = EligibilityChecker.evaluate(analysis.eligibility_assessment)
 

@@ -182,3 +182,30 @@ async def test_llm_stated_future_deadline_keeps_the_row_live(stored):
     assert result.deadline == datetime(2028, 3, 15)
     assert result.status == TenderStatus.NEW
     assert stored["digest_queued"] == [stored["tender_id"]]
+
+
+@pytest.mark.asyncio
+async def test_web_search_row_with_no_deadline_after_llm_recovery_is_dropped(stored, monkeypatch):
+    # Even when a WebSearch page carries a tender_reference (passing the pre-LLM
+    # gate), if neither the regex extractor nor the LLM recovers a deadline it
+    # must not enter the active board or digest queue.
+    monkeypatch.setattr(
+        daily_scan,
+        "scrape_page",
+        lambda url: {"markdown": "Official Portal Home Page Ref: 2026_EIL_933009_1", "engine": "plain"},
+    )
+    orch = ScannerOrchestrator()
+    orch.classifier = _FakeClassifier({"submission_deadline": "Not stated"})
+
+    result = await orch._process_raw(
+        _raw(
+            source="WebSearch",
+            url="https://example.gov.in/home",
+            tender_reference="2026_EIL_933009_1",
+        )
+    )
+
+    assert result is None
+    assert stored["upserted"] is None
+    assert stored["digest_queued"] == []
+    assert orch._web_gate_drops == 1
