@@ -21,8 +21,7 @@ from typing import Any, List
 
 import httpx
 
-from config.tools import playwright_config
-from connectors.base import playwright_proxy_config, scraper_proxy_url
+from config.tools import playwright_config, playwright_proxy_config, scraper_proxy_url
 from database.models import RawTender
 
 logger = logging.getLogger(__name__)

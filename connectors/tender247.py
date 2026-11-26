@@ -29,8 +29,8 @@ from typing import Any, List, Optional
 from datetime import datetime
 from playwright.async_api import async_playwright, Page, BrowserContext
 from database.models import RawTender, TenderDocument
-from config.tools import playwright_config
-from .base import BaseConnector, playwright_proxy_config, scraper_proxy_url
+from config.tools import playwright_config, playwright_proxy_config, scraper_proxy_url
+from .base import BaseConnector
 
 logger = logging.getLogger(__name__)
 
