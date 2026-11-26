@@ -3,13 +3,13 @@ SEPLE Tender Notifier — Email Digest
 Generates and sends the daily digest of discovered tenders.
 Implements PRD §8.1
 """
-import os
-import logging
 import asyncio
-from typing import List, Dict
-import smtplib
-from email.message import EmailMessage
 from datetime import datetime
+from email.message import EmailMessage
+import logging
+import os
+import smtplib
+from typing import List, Optional
 
 from database.models import Tender, FitLabel
 
@@ -27,11 +27,23 @@ class EmailDigestSender:
         self.recipient_emails = [e.strip() for e in os.getenv("RECIPIENT_EMAILS", "").split(",") if e.strip()]
         
     def _smtp_connect(self):
-        """Create and return an SMTP server connection."""
-        server = smtplib.SMTP(self.smtp_server, self.smtp_port)
+        """Create and return an authenticated TLS SMTP server connection."""
+        server = smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=20)
+        server.ehlo()
         server.starttls()
+        server.ehlo()
         server.login(self.smtp_user, self.smtp_pass)
         return server
+
+    def _send_message_sync(self, msg: EmailMessage) -> None:
+        server = self._smtp_connect()
+        try:
+            server.send_message(msg)
+        finally:
+            try:
+                server.quit()
+            except Exception:
+                pass
     
     def generate_html(self, tenders: List[Tender]) -> str:
         """Generate the HTML body for the daily digest."""
@@ -159,10 +171,7 @@ class EmailDigestSender:
             msg.set_content("Please view this email in an HTML-compatible client.")
             msg.add_alternative(html_content, subtype='html')
             
-            # Using synchronous smtplib inside async function (acceptable for background task)
-            server = self._smtp_connect()
-            server.send_message(msg)
-            server.quit()
+            await asyncio.to_thread(self._send_message_sync, msg)
             
             logger.info("Successfully sent daily email digest to %d recipients.", len(self.recipient_emails))
             return True
@@ -170,3 +179,82 @@ class EmailDigestSender:
         except Exception as e:
             logger.error(f"Failed to send email digest: {e}")
             return False
+
+    async def send_plain_email(
+        self,
+        recipients: List[str],
+        subject: str,
+        body_text: str,
+        *,
+        cc: Optional[List[str]] = None,
+    ) -> bool:
+        """Send a plain-text email using the configured SMTP sender."""
+        clean_to = [addr.strip() for addr in recipients if addr and addr.strip()]
+        clean_cc = [addr.strip() for addr in (cc or []) if addr and addr.strip() and addr.strip() not in clean_to]
+        if not clean_to:
+            logger.warning("No recipients provided for email %r", subject)
+            return False
+        if not self.smtp_user or not self.smtp_pass:
+            logger.error("SMTP credentials missing; cannot send email %r", subject)
+            return False
+
+        try:
+            msg = EmailMessage()
+            msg["Subject"] = subject
+            msg["From"] = self.sender_email or self.smtp_user
+            msg["To"] = ", ".join(clean_to)
+            if clean_cc:
+                msg["Cc"] = ", ".join(clean_cc)
+            msg.set_content(body_text)
+
+            await asyncio.to_thread(self._send_message_sync, msg)
+            logger.info("Sent email %r to %s", subject, ", ".join(clean_to))
+            return True
+        except Exception as e:
+            logger.error("Failed to send email %r: %s", subject, e)
+            return False
+
+    async def send_tender247_unblock_request(
+        self,
+        *,
+        error_detail: str,
+        egress_ip: Optional[str] = None,
+        account_email: Optional[str] = None,
+    ) -> bool:
+        """Email Tender247 support to unblock our IP, or notify internal team if unset."""
+        support_emails = [
+            e.strip() for e in os.getenv("TENDER247_SUPPORT_EMAIL", "").split(",") if e.strip()
+        ]
+        acct = account_email or os.getenv("TENDER247_EMAIL") or self.sender_email or "info@seple.in"
+        ip_line = f"Server / Egress Public IP: {egress_ip}\n" if egress_ip else ""
+
+        if support_emails:
+            subject = f"Request to Unblock / Whitelist IP for Tender247 Account ({acct})"
+            body = (
+                "Hello Tender247 Support Team,\n\n"
+                f"Our automated daily tender sync for subscribed account {acct} is currently blocked "
+                "with a Cloudflare 403 / access block.\n\n"
+                f"Account Email: {acct}\n"
+                f"{ip_line}"
+                f"Observed Error: {error_detail}\n\n"
+                "Could you please whitelist / unblock access for our account and IP?\n\n"
+                "Thanks & Regards,\n"
+                "SEPLE Team\n"
+                f"{self.sender_email or self.smtp_user or ''}\n"
+            )
+            return await self.send_plain_email(
+                support_emails, subject, body, cc=self.recipient_emails
+            )
+
+        if not self.recipient_emails:
+            return False
+        subject = "[Action Needed] Tender247 IP Blocked — Email Support to Unblock"
+        body = (
+            "Tender247 automated login/scraping appears blocked (Cloudflare / IP block).\n\n"
+            f"Account Email: {acct}\n"
+            f"{ip_line}"
+            f"Error: {error_detail}\n\n"
+            "Set TENDER247_SUPPORT_EMAIL in environment/Secrets Manager to email Tender247 support "
+            "automatically next time, or email them manually with the IP above to unblock.\n"
+        )
+        return await self.send_plain_email(self.recipient_emails, subject, body)

@@ -1000,3 +1000,39 @@ async def get_stats() -> dict:
                 for r in source_runs
             ],
         }
+
+
+async def was_audit_action_logged_recently(action: str, *, within_days: int = 7) -> bool:
+    """Return True if an audit_log entry for `action` exists within `within_days`."""
+    async with get_connection() as conn:
+        found = await conn.fetchval(
+            """
+            SELECT EXISTS(
+                SELECT 1
+                FROM audit_log
+                WHERE action = $1
+                  AND created_at >= NOW() - make_interval(days => $2)
+            )
+            """,
+            action,
+            max(1, within_days),
+        )
+        return bool(found)
+
+
+async def record_audit_event(
+    action: str,
+    *,
+    entity_type: Optional[str] = None,
+    details: Optional[dict] = None,
+    performed_by: str = "system",
+) -> None:
+    """Persist an audit_log event cleanly outside a specific entity handler."""
+    async with get_connection() as conn:
+        await _audit(
+            conn,
+            action,
+            entity_type=entity_type,
+            details=details,
+            performed_by=performed_by,
+        )

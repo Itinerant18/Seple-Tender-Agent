@@ -28,6 +28,37 @@ from notifier.alert_rules import AlertRulesEngine
 logger = logging.getLogger(__name__)
 
 KNOWN_SOURCES = ("TenderTiger", "Tender247", "GeM", "WebSearch")
+_TENDER247_BLOCK_MARKERS = (
+    "cloudflare",
+    "403",
+    "blocked",
+    "timed out",
+    "homepage load failed",
+    "login button click failed",
+)
+_UNBLOCK_EMAIL_ACTION = "tender247_unblock_email"
+_UNBLOCK_COOLDOWN_DAYS = 7
+
+
+def _is_tender247_ip_block_error(message: str) -> bool:
+    lower = (message or "").lower()
+    return any(marker in lower for marker in _TENDER247_BLOCK_MARKERS)
+
+
+async def _detect_egress_ip() -> str | None:
+    override = os.getenv("TENDER247_EGRESS_IP", "").strip()
+    if override:
+        return override
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=3) as client:
+            resp = await client.get("https://api.ipify.org")
+            if resp.status_code == 200:
+                return resp.text.strip() or None
+    except Exception:
+        return None
+    return None
 
 class ScannerOrchestrator:
     
@@ -70,6 +101,35 @@ class ScannerOrchestrator:
             return True
         logger.info("Skipping %s (not in SCAN_SOURCES)", source)
         return False
+
+    async def _maybe_notify_tender247_block(self, error: Exception) -> None:
+        """Email Tender247 support (or internal team) at most once per cooldown window."""
+        msg = str(error)
+        if not _is_tender247_ip_block_error(msg):
+            return
+        try:
+            if await repository.was_audit_action_logged_recently(
+                _UNBLOCK_EMAIL_ACTION, within_days=_UNBLOCK_COOLDOWN_DAYS
+            ):
+                logger.info(
+                    "Skipping Tender247 unblock email (already sent within %d days)",
+                    _UNBLOCK_COOLDOWN_DAYS,
+                )
+                return
+            egress_ip = await _detect_egress_ip()
+            sent = await self.email.send_tender247_unblock_request(
+                error_detail=msg,
+                egress_ip=egress_ip,
+                account_email=os.getenv("TENDER247_EMAIL"),
+            )
+            if sent:
+                await repository.record_audit_event(
+                    _UNBLOCK_EMAIL_ACTION,
+                    entity_type="source",
+                    details={"egress_ip": egress_ip, "error": msg[:500]},
+                )
+        except Exception:
+            logger.exception("Failed while sending Tender247 block notification")
 
     async def run_daily_scan(self):
         """Run the full daily scan pipeline. Returns relevant (digest-worthy) tenders."""
@@ -126,6 +186,8 @@ class ScannerOrchestrator:
                         logger.warning("Tender247 email fallback failed: %s", email_err)
                 logger.error("%s scan failed: %s", name, e)
                 await repository.complete_scrape_run(run_id, error=str(e))
+                if name == "Tender247":
+                    await self._maybe_notify_tender247_block(e)
             finally:
                 await connector.close()
 

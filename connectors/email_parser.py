@@ -197,10 +197,13 @@ class EmailParserConnector:
         """Resolve IMAP credentials from IMAP_* or fall back to SMTP_* env vars."""
         user = (os.getenv("IMAP_USER") or os.getenv("SMTP_USER") or "").strip()
         password = (os.getenv("IMAP_PASS") or os.getenv("SMTP_PASS") or "").strip()
-        smtp_srv = (os.getenv("SMTP_SERVER") or "").strip()
+        smtp_srv = (os.getenv("SMTP_SERVER") or "").strip().lower()
         host = (os.getenv("IMAP_SERVER") or "").strip()
-        if not host and smtp_srv.startswith("smtp."):
-            host = smtp_srv.replace("smtp.", "imap.", 1)
+        if not host and smtp_srv:
+            if smtp_srv in ("smtp.office365.com", "smtp-mail.outlook.com"):
+                host = "outlook.office365.com"
+            elif smtp_srv.startswith("smtp."):
+                host = smtp_srv.replace("smtp.", "imap.", 1)
         if not (host and user and password):
             return None
         return {

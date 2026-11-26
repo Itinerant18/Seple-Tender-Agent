@@ -111,6 +111,19 @@ def test_imap_config_derives_imap_host_from_smtp_server(monkeypatch):
     }
 
 
+def test_imap_config_maps_office365_smtp_to_outlook_imap(monkeypatch):
+    monkeypatch.delenv("IMAP_SERVER", raising=False)
+    monkeypatch.delenv("IMAP_USER", raising=False)
+    monkeypatch.delenv("IMAP_PASS", raising=False)
+    monkeypatch.setenv("SMTP_SERVER", "smtp.office365.com")
+    monkeypatch.setenv("SMTP_USER", "info@seple.in")
+    monkeypatch.setenv("SMTP_PASS", "app-pass")
+
+    cfg = EmailParserConnector._imap_config()
+    assert cfg["host"] == "outlook.office365.com"
+    assert cfg["user"] == "info@seple.in"
+
+
 def test_fetch_from_imap_reads_peek_and_deduplicates(monkeypatch):
     monkeypatch.setenv("IMAP_SERVER", "imap.example.com")
     monkeypatch.setenv("IMAP_USER", "bot@example.com")
