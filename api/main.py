@@ -2,16 +2,20 @@
 SEPLE Tender API
 FastAPI backend for internal tooling, stats dashboard, and ad-hoc scans.
 """
-import uuid
+import hmac
 import logging
-from typing import List, Optional
-from fastapi import FastAPI, BackgroundTasks, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
+import os
+import uuid
 from contextlib import asynccontextmanager
+from typing import List, Optional
+
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
 from database import repository
-from database.db import init_schema, close_pool
-from database.models import FitLabel, TenderStatus, UserFeedback
+from database.db import close_pool, init_schema
+from database.models import FitLabel, RawTender, TenderStatus, UserFeedback
 from scheduler.daily_scan import ScannerOrchestrator
 
 # Setup logging
@@ -155,6 +159,82 @@ async def _scan_with_expiry_sync() -> None:
             await repository.sync_expired_tenders()
         except Exception:
             logger.exception("Expired-tender sync failed after manual scan; continuing")
+
+
+class TenderIngestRequest(BaseModel):
+    source: str = Field(..., min_length=1, max_length=64)
+    tenders: List[RawTender] = Field(default_factory=list, max_length=1000)
+
+
+def _verify_ingest_token(authorization: Optional[str]) -> None:
+    expected = (os.getenv("TENDER_INGEST_TOKEN") or "").strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Tender ingest is not configured (missing TENDER_INGEST_TOKEN).",
+        )
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing Bearer token")
+    provided = authorization[len("Bearer "):].strip()
+    if not hmac.compare_digest(provided, expected):
+        raise HTTPException(status_code=403, detail="Invalid ingest token")
+
+
+@app.post("/api/tenders/ingest", status_code=202)
+async def ingest_tenders(
+    payload: TenderIngestRequest,
+    background_tasks: BackgroundTasks,
+    authorization: Optional[str] = Header(None),
+):
+    """Ingest pre-scraped RawTender rows from an Indian/local runner into RDS."""
+    _verify_ingest_token(authorization)
+    run_id = await repository.start_scrape_run(payload.source, [])
+    background_tasks.add_task(_ingest_batch, run_id, payload.source, payload.tenders)
+    return {
+        "status": "accepted",
+        "run_id": str(run_id),
+        "source": payload.source,
+        "received": len(payload.tenders),
+    }
+
+
+async def _ingest_batch(
+    run_id: uuid.UUID,
+    source: str,
+    raw_tenders: List[RawTender],
+) -> None:
+    """Process an ingested RawTender batch through dedup, classification, and expiry sync."""
+    orchestrator = ScannerOrchestrator()
+    stored = 0
+    try:
+        await repository.sync_expired_tenders()
+    except Exception:
+        logger.exception("Expired-tender sync failed before ingest; continuing")
+
+    try:
+        for raw in raw_tenders:
+            try:
+                tender = await orchestrator._process_raw(raw)
+                if tender is not None:
+                    stored += 1
+            except Exception:
+                logger.exception("Failed to process ingested %s tender: %s", source, raw.title)
+        status = "success_no_results" if not raw_tenders else "completed"
+        await repository.complete_scrape_run(
+            run_id,
+            tenders_found=len(raw_tenders),
+            tenders_new=stored,
+            duplicates_skipped=max(0, len(raw_tenders) - stored),
+            status=status,
+        )
+    except Exception as e:
+        logger.exception("Ingest batch %s (%s) failed", run_id, source)
+        await repository.complete_scrape_run(run_id, error=str(e))
+    finally:
+        try:
+            await repository.sync_expired_tenders()
+        except Exception:
+            logger.exception("Expired-tender sync failed after ingest; continuing")
 
 @app.get("/api/tenders/export")
 async def export_tenders():
