@@ -1,18 +1,22 @@
 import importlib.util
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
-
-pytest.importorskip("playwright")
 
 GEM_DIRECT_PATH = Path(__file__).resolve().parents[2] / "connectors" / "gem_direct.py"
 spec = importlib.util.spec_from_file_location("gem_direct_module", GEM_DIRECT_PATH)
 gem_direct_module = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 spec.loader.exec_module(gem_direct_module)
-_to_raw_tender = gem_direct_module._to_raw_tender
 
-# Verbatim innerText of a bidplus.gem.gov.in listing card (captured 11-08-2026).
+_to_raw_tender = gem_direct_module._to_raw_tender
+_doc_to_raw_tender = gem_direct_module._doc_to_raw_tender
+_bid_doc_url = gem_direct_module._bid_doc_url
+_extract_csrf = gem_direct_module._extract_csrf
+GeMConnector = gem_direct_module.GeMConnector
+
+# Verbatim innerText of a bidplus.gem.gov.in listing card (Playwright fallback).
 CARD_TEXT = (
     "Bid No.: GEM/2026/B/7637412 RA NO: GEM/2026/R/712874 "
     "View Corrigendum/Representation Items: Portable Fire Extinguishers (V4) "
@@ -31,6 +35,28 @@ def _card(**overrides) -> dict:
     return card
 
 
+def _solr_doc(**overrides) -> dict:
+    doc = {
+        "id": "10156366",
+        "b_id": [10156366],
+        "b_bid_number": ["GEM/2026/B/8265817"],
+        "b_bid_type": [1],
+        "b_eval_type": [0],
+        "b_status": [1],
+        "b_is_inactive": [0],
+        "b_category_name": ["Items1,Items2,Items3,Item"],
+        "bd_category_name": ["Items1,Items2,Items3,Camera for CCTV System (V3)"],
+        "bbt_title": ["PROVISION OF CCTV"],
+        "b_total_quantity": [15057],
+        "ba_official_details_minName": ["Ministry of Defence"],
+        "ba_official_details_deptName": ["Department of Military Affairs"],
+        "final_start_date_sort": ["2026-11-12T11:00:26Z"],
+        "final_end_date_sort": ["2026-11-26T11:00:00Z"],
+    }
+    doc.update(overrides)
+    return doc
+
+
 def test_parses_every_labelled_field():
     tender = _to_raw_tender(_card())
 
@@ -43,8 +69,6 @@ def test_parses_every_labelled_field():
 
 
 def test_description_carries_scope_beyond_the_title():
-    # The classifier saw DESCRIPTION: None for every GeM row under the old
-    # connector, so it judged fit on the title alone.
     description = _to_raw_tender(_card()).description
 
     assert "Portable Fire Extinguishers (V4)" in description
@@ -62,60 +86,63 @@ def test_missing_dates_do_not_raise():
     assert tender.title == "Fire pump"
 
 
-_mirror_row_to_tender = gem_direct_module._mirror_row_to_tender
+def test_solr_doc_maps_all_fields_and_prefers_untruncated_category():
+    tender = _doc_to_raw_tender(_solr_doc(), search_term="cctv")
 
-# Verbatim row from the CPPP GeM mirror (captured 12-08-2026).
-MIRROR_ROW = [
-    "3.", "29-Jun-2026 11:34 AM", "13-Aug-2026 12:00 PM",
-    "GEM/2026/B/7646952/1",
-    "HD IP High Capability day night surveillance camera,16 Channel NVR",
-    "Prasar Bharati Broadcasting Corporation",
-    "Ministry of Information and Broadcasting",
-]
-
-
-def test_mirror_row_parses_and_splits_quantity_off_the_bid_number():
-    tender = _mirror_row_to_tender(MIRROR_ROW, "/cppp/tenderdetail/1")
-
-    assert tender.tender_reference == "GEM/2026/B/7646952"  # trailing quantity dropped
-    assert tender.deadline == "13-Aug-2026 12:00 PM"
-    assert tender.publication_date == "29-Jun-2026 11:34 AM"
-    assert "Prasar Bharati" in tender.issuing_authority
+    assert tender is not None
+    assert tender.tender_reference == "GEM/2026/B/8265817"
+    assert tender.title == "PROVISION OF CCTV"
+    assert tender.category == "Items1,Items2,Items3,Camera for CCTV System (V3)"
+    assert "Camera for CCTV System (V3)" in tender.description
+    assert "Ministry of Defence — Department of Military Affairs" in tender.issuing_authority
+    assert "Quantity: 15057" in tender.description
+    assert tender.publication_date == "2026-11-12T11:00:26Z"
+    assert tender.deadline == "2026-11-26T11:00:00Z"
+    assert tender.url == "https://bidplus.gem.gov.in/showbidDocument/10156366"
     assert tender.source == "GeM"
+    assert tender.search_term == "cctv"
 
 
-def test_mirror_row_without_a_matching_token_is_dropped():
-    row = list(MIRROR_ROW)
-    row[4], row[5], row[6] = "Tyres and batteries", "Some Org", "Some Dept"
+def test_solr_doc_strips_items_placeholders_when_bbt_title_is_absent():
+    doc = _solr_doc(
+        bbt_title=None,
+        bd_category_name=["Items1,Items2,Camera for CCTV System (V3),NVR 16 Ch"],
+    )
+    tender = _doc_to_raw_tender(doc)
 
-    assert _mirror_row_to_tender(row, None) is None
-
-
-def test_mirror_ignores_non_bid_rows():
-    assert _mirror_row_to_tender(["header", "row"], None) is None
-
-
-_mirror_page_url = gem_direct_module._mirror_page_url
+    assert tender is not None
+    assert tender.title == "Camera for CCTV System (V3),NVR 16 Ch"
 
 
-def test_mirror_page_1_is_the_bare_url():
-    assert _mirror_page_url(1) == gem_direct_module.MIRROR_URL
+def test_solr_doc_skips_cancelled_and_inactive_bids():
+    assert _doc_to_raw_tender(_solr_doc(b_status=[3])) is None
+    assert _doc_to_raw_tender(_solr_doc(b_status=[5])) is None
+    assert _doc_to_raw_tender(_solr_doc(b_is_inactive=[1])) is None
+    assert _doc_to_raw_tender(_solr_doc(b_bid_number=[])) is None
 
 
-def test_mirror_pagination_encodes_the_page_url_in_base64():
-    # A bare ?page=N is silently ignored and re-serves page 1, so the url=
-    # token is the only thing that actually pages.
-    import base64
-    from urllib.parse import parse_qs, urlsplit
-
-    token = parse_qs(urlsplit(_mirror_page_url(7)).query)["url"][0]
-    assert base64.b64decode(token).decode() == f"{gem_direct_module.MIRROR_URL}?page=7"
+def test_bid_doc_url_matches_portal_bid_types():
+    assert _bid_doc_url(_solr_doc(b_bid_type=[1])) == "https://bidplus.gem.gov.in/showbidDocument/10156366"
+    assert _bid_doc_url(_solr_doc(b_bid_type=[5])) == "https://bidplus.gem.gov.in/showdirectradocumentPdf/10156366"
+    assert _bid_doc_url(_solr_doc(b_bid_type=[2], b_eval_type=[0])) == "https://bidplus.gem.gov.in/showradocumentPdf/10156366"
+    assert _bid_doc_url(_solr_doc(b_bid_type=[2], b_eval_type=[1])) == "https://bidplus.gem.gov.in/list-ra-schedules/10156366"
 
 
-def test_organisation_name_alone_is_not_a_match():
-    # "Border Security Force" in the org column used to pull in its tyre and
-    # battery bids.
-    row = list(MIRROR_ROW)
-    row[4], row[5], row[6] = "TYRE-1,BATTERY-2", "Border Security Force (BSF)", "CAPF"
+def test_extract_csrf_finds_js_assignment_or_cookie():
+    html = "<script>data: {'payload': JSON.stringify(postdata), 'csrf_bd_gem_nk': '252f909c57f2830d492918f83272dde9'}</script>"
+    assert _extract_csrf(html) == "252f909c57f2830d492918f83272dde9"
+    assert _extract_csrf("<html></html>", {"csrf_gem_cookie": "abc123def4567890"}) == "abc123def4567890"
+    assert _extract_csrf("<html></html>") is None
 
-    assert _mirror_row_to_tender(row, None) is None
+
+@pytest.mark.asyncio
+async def test_scrape_tenders_falls_back_to_playwright_if_api_raises(monkeypatch):
+    connector = GeMConnector()
+    fallback_tender = _doc_to_raw_tender(_solr_doc())
+    monkeypatch.setattr(connector, "_scrape_via_api", AsyncMock(side_effect=RuntimeError("WAF 403")))
+    monkeypatch.setattr(connector, "_scrape_via_playwright", AsyncMock(return_value=[fallback_tender]))
+
+    results = await connector.scrape_tenders(max_results=10)
+
+    assert len(results) == 1
+    assert results[0].tender_reference == "GEM/2026/B/8265817"
