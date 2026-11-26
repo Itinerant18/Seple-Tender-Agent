@@ -2,6 +2,11 @@
 SEPLE Tender Connectors — Tender247
 Next.js SPA + JSON API gateway (verified live 22-07-2026).
 
+Monthly IP-block cycle: tender247.com (via Cloudflare WAF) blocks egress IPs
+after sustained automated traffic. The user currently emails Tender247 support
+roughly monthly to unblock; routing through SCRAPER_PROXY with an Indian
+sticky-session residential proxy is the durable fix for AWS egress.
+
 Flow:
 - Login is a modal on the homepage ("Sign Up/Log In" button →
   input[name='emailId'] + input[type='password'] → SUBMIT). Success lands on
@@ -18,14 +23,14 @@ import os
 import logging
 import asyncio
 import json
+import random
 from pathlib import Path
-from typing import List, Optional
-from urllib.parse import unquote, urlsplit, urlunsplit
+from typing import Any, List, Optional
 from datetime import datetime
 from playwright.async_api import async_playwright, Page, BrowserContext
 from database.models import RawTender, TenderDocument
 from config.tools import playwright_config
-from .base import BaseConnector
+from .base import BaseConnector, playwright_proxy_config, scraper_proxy_url
 
 logger = logging.getLogger(__name__)
 
@@ -94,28 +99,12 @@ class Tender247Connector(BaseConnector):
         work needs sticky sessions, and it costs credits per run either way.
         Set SCRAPER_PROXY only with a proxy that holds one IP for a session.
         """
-        return os.getenv("SCRAPER_PROXY")
+        return scraper_proxy_url()
 
     @classmethod
     def _proxy_launch_args(cls) -> Optional[dict]:
-        """Playwright proxy config, credentials split out of the URL.
-
-        Chromium ignores user:pass embedded in a proxy URL — the proxy then
-        answers 407 and every navigation hangs until it times out. Playwright
-        wants them as separate username/password fields.
-        """
-        url = cls._proxy_server()
-        if not url:
-            return None
-        parsed = urlsplit(url)
-        server = urlunsplit((parsed.scheme, parsed.hostname or "", "", "", ""))
-        if parsed.port:
-            server = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
-        config = {"server": server}
-        if parsed.username:
-            config["username"] = unquote(parsed.username)
-            config["password"] = unquote(parsed.password or "")
-        return config
+        """Playwright proxy config, credentials split out of the URL."""
+        return playwright_proxy_config(cls._proxy_server())
 
     async def _clear_browser_state(self):
         """Drop cookies + localStorage before a fresh login.
@@ -168,6 +157,28 @@ class Tender247Connector(BaseConnector):
         self.page.set_default_timeout(timeout)
         self.page.set_default_navigation_timeout(timeout)
 
+    async def _detect_cloudflare_block(
+        self, context: str = "page load", response: Any = None
+    ) -> bool:
+        """Fail fast when Cloudflare serves a challenge or 403 block page."""
+        status = getattr(response, "status", None) if response is not None else None
+        title = ""
+        title_fn = getattr(self.page, "title", None)
+        if callable(title_fn):
+            try:
+                title = (await title_fn()) or ""
+            except Exception:
+                title = ""
+        lower_title = title.strip().lower()
+        if "just a moment" in lower_title or "attention required" in lower_title or status == 403:
+            self.login_failure = (
+                f"Cloudflare anti-bot challenge detected during {context} — "
+                f"IP may be blocked by tender247.com (status={status!r}, page title: {title!r})"
+            )
+            logger.error("Tender247: %s", self.login_failure)
+            return True
+        return False
+
     async def login(self) -> bool:
         """Authenticate with Tender247, reusing the persisted session when possible."""
         if not self.email or not self.password:
@@ -178,7 +189,13 @@ class Tender247Connector(BaseConnector):
 
             # 1. Try persisted session
             if self.session_file.exists():
-                await self.page.goto(f"{self.base_url}/auth/tender", wait_until="domcontentloaded", timeout=_PAGE_LOAD_TIMEOUT)
+                resp = await self.page.goto(
+                    f"{self.base_url}/auth/tender",
+                    wait_until="domcontentloaded",
+                    timeout=_PAGE_LOAD_TIMEOUT,
+                )
+                if await self._detect_cloudflare_block("session restore", response=resp):
+                    return False
                 await asyncio.sleep(6)  # SPA hydration
                 if "/auth/" in self.page.url:
                     # Verify the restored session has the feed query id.
@@ -195,9 +212,14 @@ class Tender247Connector(BaseConnector):
 
             # 2. Fresh login via homepage modal — retry page load up to 2 times
             load_error: Exception | None = None
+            resp = None
             for load_attempt in (1, 2):
                 try:
-                    await self.page.goto(self.base_url, wait_until="domcontentloaded", timeout=_PAGE_LOAD_TIMEOUT)
+                    resp = await self.page.goto(
+                        self.base_url,
+                        wait_until="domcontentloaded",
+                        timeout=_PAGE_LOAD_TIMEOUT,
+                    )
                     load_error = None
                     break
                 except Exception as e:
@@ -207,6 +229,8 @@ class Tender247Connector(BaseConnector):
             if load_error is not None:
                 self.login_failure = f"homepage load failed after retry: {type(load_error).__name__}: {load_error}"
                 logger.error("Tender247 login failed: %s", self.login_failure)
+                return False
+            if await self._detect_cloudflare_block("homepage load", response=resp):
                 return False
 
             # 3. Click "Log in" / "Sign in" button — retry twice to survive SPA re-render
@@ -326,7 +350,12 @@ class Tender247Connector(BaseConnector):
         tenders: List[RawTender] = []
         seen = set()
         errors: List[str] = []
-        for keyword in [""] + list(keywords or []):
+        keyword_list = list(keywords or [])
+        active_keywords = [""] + keyword_list
+        idx = 0
+        while idx < len(active_keywords):
+            keyword = active_keywords[idx]
+            idx += 1
             try:
                 res = await self.page.evaluate(
                     _SEARCH_JS, {"searchText": keyword, "perPage": 100}
@@ -364,7 +393,14 @@ class Tender247Connector(BaseConnector):
                         search_term=keyword or "(daily feed)",
                         scraped_at=datetime.utcnow().isoformat(),
                     ))
-                await asyncio.sleep(1)  # gentle pacing between API calls
+                if keyword == "" and len(tenders) >= 50 and len(keyword_list) > 5:
+                    logger.info(
+                        "Tender247: unfiltered feed returned %d tenders, limiting remaining keyword queries to 5",
+                        len(tenders),
+                    )
+                    active_keywords = [""] + keyword_list[:5]
+                if idx < len(active_keywords):
+                    await asyncio.sleep(random.uniform(2.0, 4.0))  # paced jittered delay to reduce WAF fingerprinting
             except Exception as e:
                 err = f"Tender247 search '{keyword}' failed: {e}"
                 errors.append(err)

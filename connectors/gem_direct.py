@@ -22,6 +22,7 @@ from typing import Any, List
 import httpx
 
 from config.tools import playwright_config
+from connectors.base import playwright_proxy_config, scraper_proxy_url
 from database.models import RawTender
 
 logger = logging.getLogger(__name__)
@@ -287,11 +288,15 @@ class GeMConnector:
         found: dict[str, RawTender] = {}
         attempted_terms = 0
         failed_terms = 0
+        proxy_url = scraper_proxy_url()
+        if proxy_url:
+            logger.info("GeM API client using SCRAPER_PROXY")
 
         async with httpx.AsyncClient(
             timeout=30,
             headers=_BROWSER_HEADERS,
             follow_redirects=True,
+            proxy=proxy_url,
         ) as client:
             csrf_token = await self._fetch_session_csrf(client)
 
@@ -333,22 +338,31 @@ class GeMConnector:
 
         return list(found.values())[:max_results]
 
+    @staticmethod
+    def _proxy_launch_args() -> dict | None:
+        return playwright_proxy_config()
+
     async def _init_browser(self):
         if self.playwright:
             return
         from playwright.async_api import async_playwright
 
         self.playwright = await async_playwright().start()
+        proxy = self._proxy_launch_args()
+        if proxy:
+            logger.info("GeM Playwright browser using proxy egress (%s)", proxy["server"])
         self.browser = await self.playwright.chromium.launch(
             headless=playwright_config.headless,
             slow_mo=playwright_config.slow_mo,
+            proxy=proxy,
         )
         major = self.browser.version.split(".")[0]
         context = await self.browser.new_context(
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 f"(KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
-            )
+            ),
+            ignore_https_errors=bool(proxy),
         )
         self.page = await context.new_page()
         self.page.set_default_timeout(playwright_config.timeout)
@@ -361,13 +375,19 @@ class GeMConnector:
         """Fallback headless browser scrape when direct HTTP is WAF-challenged."""
         await self._init_browser()
         found: dict[str, RawTender] = {}
+        attempted_terms = 0
+        failed_terms = 0
+        last_err: Exception | None = None
 
         for term in terms:
             if len(found) >= max_results:
                 break
+            attempted_terms += 1
             try:
                 cards = await self._search_playwright(term)
             except Exception as e:
+                failed_terms += 1
+                last_err = e
                 logger.warning("GeM Playwright search '%s' failed: %s", term, e)
                 continue
 
@@ -376,6 +396,11 @@ class GeMConnector:
                 if tender and tender.tender_reference not in found:
                     found[tender.tender_reference] = tender
             logger.info("GeM Playwright '%s': %d cards, %d unique so far", term, len(cards), len(found))
+
+        if attempted_terms > 0 and failed_terms == attempted_terms:
+            raise RuntimeError(
+                f"All {attempted_terms} GeM Playwright term queries failed: {last_err}"
+            )
 
         return list(found.values())[:max_results]
 
@@ -405,13 +430,20 @@ class GeMConnector:
         the narrow platform keyword list.
         """
         try:
+            captured_api_err: Exception | None = None
             try:
                 tenders = await self._scrape_via_api(GEM_SEARCH_TERMS, max_results=max_results)
             except Exception as api_err:
+                captured_api_err = api_err
                 logger.warning(
                     "GeM direct API failed (%s); falling back to Playwright", api_err
                 )
                 tenders = await self._scrape_via_playwright(GEM_SEARCH_TERMS, max_results=max_results)
+
+            if not tenders and captured_api_err is not None:
+                raise RuntimeError(
+                    f"GeM unreachable: API ({captured_api_err}) and Playwright both returned 0 tenders"
+                )
 
             logger.info("GeM returned %d tenders", len(tenders))
             if not tenders:
