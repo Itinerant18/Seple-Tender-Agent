@@ -10,7 +10,13 @@ from datetime import datetime
 
 from database import repository
 from database.models import Tender, TenderStatus, FitLabel, Notification, NotificationType
-from connectors import TenderTigerConnector, Tender247Connector, GeMConnector, WebDiscoveryConnector
+from connectors import (
+    EmailParserConnector,
+    GeMConnector,
+    Tender247Connector,
+    TenderTigerConnector,
+    WebDiscoveryConnector,
+)
 from connectors.scrape_chain import scrape_page
 from processor import FieldExtractor, TenderClassifier, Deduplicator, EligibilityChecker
 from config.keywords import SEARCH_KEYWORDS
@@ -102,6 +108,22 @@ class ScannerOrchestrator:
                         run_id, tenders_found=len(found), status="completed",
                     )
             except Exception as e:
+                if name == "Tender247" and EmailParserConnector._imap_config() is not None:
+                    try:
+                        email_found = await EmailParserConnector(source_name="Tender247").scrape_tenders()
+                        if email_found:
+                            logger.warning(
+                                "Tender247 web scrape failed (%s); recovered %d tenders via IMAP email fallback",
+                                e,
+                                len(email_found),
+                            )
+                            raw_tenders.extend(email_found)
+                            await repository.complete_scrape_run(
+                                run_id, tenders_found=len(email_found), status="completed",
+                            )
+                            continue
+                    except Exception as email_err:
+                        logger.warning("Tender247 email fallback failed: %s", email_err)
                 logger.error("%s scan failed: %s", name, e)
                 await repository.complete_scrape_run(run_id, error=str(e))
             finally:

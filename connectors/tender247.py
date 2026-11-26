@@ -71,10 +71,12 @@ _SEARCH_JS = """async (arg) => {
 
 
 class Tender247Connector(BaseConnector):
-    def __init__(self):
+    def __init__(self, *, headless: Optional[bool] = None, wait_for_manual_login: bool = False):
         super().__init__(source_name="Tender247", base_url="https://www.tender247.com")
         self.email = os.getenv("TENDER247_EMAIL")
         self.password = os.getenv("TENDER247_PASSWORD")
+        self.headless = headless
+        self.wait_for_manual_login = wait_for_manual_login
         self.playwright = None
         self.browser = None
         self.context: Optional[BrowserContext] = None
@@ -132,8 +134,9 @@ class Tender247Connector(BaseConnector):
         proxy = self._proxy_launch_args()
         if proxy:
             logger.info("Tender247 browser using proxy egress (%s)", proxy["server"])
+        headless = playwright_config.headless if self.headless is None else self.headless
         self.browser = await self.playwright.chromium.launch(
-            headless=playwright_config.headless,
+            headless=headless,
             slow_mo=playwright_config.slow_mo,
             proxy=proxy,
         )
@@ -179,9 +182,39 @@ class Tender247Connector(BaseConnector):
             return True
         return False
 
+    async def _complete_login_session(self) -> bool:
+        """Wait for /auth feed readiness and persist storage_state."""
+        await self._wait_for_feed_ready()
+        self.is_logged_in = True
+        self.session_file.parent.mkdir(parents=True, exist_ok=True)
+        await self.context.storage_state(path=str(self.session_file))
+        logger.info("Successfully logged into Tender247 (session persisted)")
+        return True
+
+    async def _wait_for_manual_session(self, timeout_s: int = 180) -> bool:
+        """Allow an operator using a visible browser to complete Cloudflare/login once."""
+        if not self.wait_for_manual_login:
+            return False
+        logger.warning(
+            "Tender247 automated login blocked (%s) — waiting up to %ds for manual sign-in "
+            "or Cloudflare verification in the browser window...",
+            self.login_failure or "challenge",
+            timeout_s,
+        )
+        deadline = asyncio.get_running_loop().time() + timeout_s
+        while asyncio.get_running_loop().time() < deadline:
+            url = getattr(self.page, "url", "") or ""
+            if "/auth/" in url:
+                qid = await self.page.evaluate("() => localStorage.getItem('user_query_id')")
+                if qid and str(qid) not in ("0", "null", ""):
+                    self.login_failure = None
+                    return await self._complete_login_session()
+            await asyncio.sleep(2)
+        return False
+
     async def login(self) -> bool:
         """Authenticate with Tender247, reusing the persisted session when possible."""
-        if not self.email or not self.password:
+        if not self.wait_for_manual_login and (not self.email or not self.password):
             logger.error("Tender247 credentials not found in environment")
             return False
         try:
@@ -195,7 +228,7 @@ class Tender247Connector(BaseConnector):
                     timeout=_PAGE_LOAD_TIMEOUT,
                 )
                 if await self._detect_cloudflare_block("session restore", response=resp):
-                    return False
+                    return await self._wait_for_manual_session()
                 await asyncio.sleep(6)  # SPA hydration
                 if "/auth/" in self.page.url:
                     # Verify the restored session has the feed query id.
@@ -231,7 +264,7 @@ class Tender247Connector(BaseConnector):
                 logger.error("Tender247 login failed: %s", self.login_failure)
                 return False
             if await self._detect_cloudflare_block("homepage load", response=resp):
-                return False
+                return await self._wait_for_manual_session()
 
             # 3. Click "Log in" / "Sign in" button — retry twice to survive SPA re-render
             login_clicked = False
@@ -257,7 +290,7 @@ class Tender247Connector(BaseConnector):
             if not login_clicked:
                 self.login_failure = "login button click failed after retries"
                 logger.error("Tender247 login failed: %s", self.login_failure)
-                return False
+                return await self._wait_for_manual_session()
 
             # 4. Fill email and password, submit
             email_box = self.page.locator("input[name='emailId']")
@@ -272,14 +305,7 @@ class Tender247Connector(BaseConnector):
                 redirected = False
 
             if "/auth/" in self.page.url:
-                # Wait for the SPA to materialize user_query_id before persisting.
-                # This ensures the saved session is actually usable next time.
-                await self._wait_for_feed_ready()
-                self.is_logged_in = True
-                self.session_file.parent.mkdir(parents=True, exist_ok=True)
-                await self.context.storage_state(path=str(self.session_file))
-                logger.info("Successfully logged into Tender247 (session persisted)")
-                return True
+                return await self._complete_login_session()
 
             if not redirected:
                 self.login_failure = "no redirect to /auth within 90s after SUBMIT"
@@ -290,7 +316,7 @@ class Tender247Connector(BaseConnector):
                 "possible cause — check the login duration in this log before "
                 "assuming they are wrong.", self.login_failure
             )
-            return False
+            return await self._wait_for_manual_session()
         except Exception as e:
             self.login_failure = f"{type(e).__name__}: {e}"
             logger.error(f"Error during Tender247 login: {e}")

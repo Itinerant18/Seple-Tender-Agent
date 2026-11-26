@@ -10,18 +10,18 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import importlib.util
 import logging
 import os
 from pathlib import Path
 import sys
 
 from dotenv import load_dotenv
-import httpx
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+from scripts import ingest_client  # noqa: E402
 
 # Overridable in tests; lazily loaded directly from gem_direct.py to avoid
 # importing connectors/__init__.py (which requires playwright at import time).
@@ -29,13 +29,10 @@ GeMConnector = None
 
 
 def _load_gem_connector_cls():
-    gem_path = REPO_ROOT / "connectors" / "gem_direct.py"
-    spec = importlib.util.spec_from_file_location("connectors_gem_direct", gem_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Unable to load {gem_path}")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod.GeMConnector
+    return ingest_client.load_module_direct(
+        "connectors_gem_direct", "connectors/gem_direct.py"
+    ).GeMConnector
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,26 +54,9 @@ async def run_sync(*, api_url: str, max_results: int, dry_run: bool) -> dict:
     if dry_run:
         return {"status": "dry_run", "scraped": len(tenders)}
 
-    token = (os.getenv("TENDER_INGEST_TOKEN") or "").strip()
-    if not token:
-        raise RuntimeError(
-            "TENDER_INGEST_TOKEN is not set; add it to .env before uploading."
-        )
-
-    endpoint = f"{api_url.rstrip('/')}/api/tenders/ingest"
-    payload = {
-        "source": connector.source_name,
-        "tenders": [t.model_dump() for t in tenders],
-    }
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(
-            endpoint,
-            json=payload,
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        resp.raise_for_status()
-        result = resp.json()
-
+    result = await ingest_client.upload_tenders(
+        connector.source_name, tenders, api_url=api_url
+    )
     logger.info("Ingest accepted: %s", result)
     return result
 

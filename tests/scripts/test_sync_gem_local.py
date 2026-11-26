@@ -3,7 +3,7 @@
 import pytest
 
 from database.models import RawTender
-from scripts import sync_gem_local
+from scripts import ingest_client, sync_gem_local
 
 
 def _sample_tender() -> RawTender:
@@ -86,7 +86,7 @@ async def test_sync_posts_serialized_tenders_with_bearer_token(monkeypatch):
             posted["headers"] = headers
             return _FakeResponse()
 
-    monkeypatch.setattr(sync_gem_local.httpx, "AsyncClient", _FakeAsyncClient)
+    monkeypatch.setattr(ingest_client.httpx, "AsyncClient", _FakeAsyncClient)
 
     result = await sync_gem_local.run_sync(
         api_url="https://api.seple.in/", max_results=50, dry_run=False
