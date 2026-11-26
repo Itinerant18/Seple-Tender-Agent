@@ -7,14 +7,13 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 import email
 from email import policy
+from html.parser import HTMLParser
 import imaplib
 import logging
 import os
 import re
 from typing import List, Optional
 from urllib.parse import urlsplit
-
-from bs4 import BeautifulSoup
 
 from database.models import RawTender
 
@@ -59,6 +58,7 @@ _LOC_RE = re.compile(
     re.I,
 )
 _T247_URL_ID_RE = re.compile(r"/tender/(\d+)(?:/|$)", re.I)
+_CONTAINER_TAGS = ("tr", "div", "td", "li", "table")
 
 
 def _match_field(pattern: re.Pattern[str], text: str) -> Optional[str]:
@@ -82,6 +82,104 @@ def _is_candidate_tender_link(href: str, text: str) -> bool:
     if _T247_URL_ID_RE.search(path):
         return True
     return len(path.strip("/")) >= 8 and len((text or "").strip()) >= 12
+
+
+class _EmailHTMLParser(HTMLParser):
+    """Stdlib HTML parser extracting structured `.tender-block` cards and link rows."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.blocks: list[dict] = []
+        self.anchors: list[dict] = []
+        self._block_depth: list[str] = []
+        self._current_block: Optional[dict] = None
+        self._active_span_class: Optional[str] = None
+        self._span_parts: list[str] = []
+        self._active_anchor: Optional[dict] = None
+        self._containers: list[dict] = []
+
+    def _enclosing_container(self) -> Optional[dict]:
+        for container in reversed(self._containers):
+            if container["tag"] == "tr":
+                return container
+        return self._containers[-1] if self._containers else None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
+        tag_l = tag.lower()
+        attr_map = {k.lower(): (v or "") for k, v in attrs}
+        classes = set(attr_map.get("class", "").split())
+
+        if self._current_block is not None:
+            self._block_depth.append(tag_l)
+        elif tag_l == "table" and "tender-block" in classes:
+            self._current_block = {}
+            self._block_depth = ["table"]
+
+        if self._current_block is not None and tag_l == "span":
+            for cls in ("value", "deadline", "authority"):
+                if cls in classes:
+                    self._active_span_class = cls
+                    self._span_parts = []
+                    break
+
+        if tag_l in _CONTAINER_TAGS:
+            self._containers.append({"tag": tag_l, "chunks": []})
+
+        if tag_l == "a" and attr_map.get("href"):
+            self._active_anchor = {
+                "href": attr_map["href"].strip(),
+                "classes": classes,
+                "text_parts": [],
+                "container": self._enclosing_container(),
+            }
+
+    def handle_endtag(self, tag: str) -> None:
+        tag_l = tag.lower()
+
+        if tag_l == "a" and self._active_anchor is not None:
+            anchor = self._active_anchor
+            self._active_anchor = None
+            text = " ".join(anchor["text_parts"]).strip()
+            if self._current_block is not None and "tender-title" in anchor["classes"]:
+                self._current_block["title"] = text or "Unknown"
+                self._current_block["url"] = anchor["href"]
+            self.anchors.append(
+                {
+                    "href": anchor["href"],
+                    "text": text,
+                    "container": anchor["container"],
+                }
+            )
+
+        if tag_l == "span" and self._active_span_class is not None:
+            if self._current_block is not None:
+                self._current_block[self._active_span_class] = " ".join(self._span_parts).strip()
+            self._active_span_class = None
+            self._span_parts = []
+
+        if tag_l in _CONTAINER_TAGS:
+            for idx in range(len(self._containers) - 1, -1, -1):
+                if self._containers[idx]["tag"] == tag_l:
+                    self._containers.pop(idx)
+                    break
+
+        if self._current_block is not None and self._block_depth:
+            if self._block_depth[-1] == tag_l:
+                self._block_depth.pop()
+            if not self._block_depth:
+                self.blocks.append(self._current_block)
+                self._current_block = None
+
+    def handle_data(self, data: str) -> None:
+        cleaned = " ".join(data.split())
+        if not cleaned:
+            return
+        if self._active_anchor is not None:
+            self._active_anchor["text_parts"].append(cleaned)
+        if self._active_span_class is not None:
+            self._span_parts.append(cleaned)
+        for container in self._containers:
+            container["chunks"].append(cleaned)
 
 
 class EmailParserConnector:
@@ -129,46 +227,35 @@ class EmailParserConnector:
                 return content
         return None
 
-    def _parse_structured_blocks(self, soup: BeautifulSoup, scraped_at: str) -> List[RawTender]:
+    def _parse_structured_blocks(self, parsed: _EmailHTMLParser, scraped_at: str) -> List[RawTender]:
         tenders: List[RawTender] = []
-        for row in soup.find_all("table", class_="tender-block"):
-            title_elem = row.find("a", class_="tender-title")
-            val_elem = row.find("span", class_="value")
-            date_elem = row.find("span", class_="deadline")
-            auth_elem = row.find("span", class_="authority")
-
-            title = title_elem.text.strip() if title_elem else "Unknown"
-            url = title_elem["href"] if title_elem and "href" in title_elem.attrs else None
-            val = val_elem.text.strip() if val_elem else None
-            deadline = date_elem.text.strip() if date_elem else None
-            authority = auth_elem.text.strip() if auth_elem else None
-
+        for block in parsed.blocks:
             tenders.append(
                 RawTender(
-                    title=title,
-                    value=val,
-                    deadline=deadline,
-                    issuing_authority=authority,
-                    url=url,
+                    title=block.get("title") or "Unknown",
+                    value=block.get("value"),
+                    deadline=block.get("deadline"),
+                    issuing_authority=block.get("authority"),
+                    url=block.get("url"),
                     source=self.source_name,
                     scraped_at=scraped_at,
                 )
             )
         return tenders
 
-    def _parse_tender_links(self, soup: BeautifulSoup, scraped_at: str) -> List[RawTender]:
+    def _parse_tender_links(self, parsed: _EmailHTMLParser, scraped_at: str) -> List[RawTender]:
         """Fallback parser for real-world Tender247 HTML alert rows without custom CSS classes."""
         tenders: List[RawTender] = []
         seen_keys: set[str] = set()
 
-        for anchor in soup.find_all("a", href=True):
-            href = (anchor.get("href") or "").strip()
-            link_text = anchor.get_text(" ", strip=True)
+        for anchor in parsed.anchors:
+            href = anchor["href"]
+            link_text = anchor["text"]
             if not _is_candidate_tender_link(href, link_text):
                 continue
 
-            container = anchor.find_parent("tr") or anchor.find_parent(["div", "td", "li", "table"])
-            block_text = container.get_text(" | ", strip=True) if container else link_text
+            container = anchor["container"]
+            block_text = " | ".join(container["chunks"]) if container and container["chunks"] else link_text
             url_id_match = _T247_URL_ID_RE.search(urlsplit(href).path)
             tender_ref = _match_field(_REF_RE, block_text) or (
                 url_id_match.group(1) if url_id_match else None
@@ -180,7 +267,10 @@ class EmailParserConnector:
             seen_keys.add(dedup_key)
 
             title = link_text if len(link_text) >= 12 else block_text[:300]
-            if title.lower().startswith(("view ", "click ", "read more", "download")) and len(block_text) > len(link_text):
+            if (
+                title.lower().startswith(("view ", "click ", "read more", "download"))
+                and len(block_text) > len(link_text)
+            ):
                 title = block_text[:300]
 
             tenders.append(
@@ -208,11 +298,14 @@ class EmailParserConnector:
                 logger.warning("No HTML content found in email for %s", self.source_name)
                 return []
 
-            soup = BeautifulSoup(html_content, "html.parser")
+            parser = _EmailHTMLParser()
+            parser.feed(html_content)
+            parser.close()
+
             scraped_at = datetime.now(timezone.utc).isoformat()
-            tenders = self._parse_structured_blocks(soup, scraped_at)
+            tenders = self._parse_structured_blocks(parser, scraped_at)
             if not tenders:
-                tenders = self._parse_tender_links(soup, scraped_at)
+                tenders = self._parse_tender_links(parser, scraped_at)
 
             logger.info("Parsed %d tenders from %s email", len(tenders), self.source_name)
             return tenders
